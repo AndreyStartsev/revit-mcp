@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "revit": {
+      "command": "python",
+      "args": [
+        "-m",
+        "revit_mcp"
+      ],
+      "env": {}
+    }
+  }
+}

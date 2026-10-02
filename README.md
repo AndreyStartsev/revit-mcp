@@ -1,54 +1,73 @@
-# Revit MCP Bridge
+# Revit MCP Bridge for Google Antigravity
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Revit](https://img.shields.io/badge/Autodesk%20Revit-2020--2026-orange.svg)](https://www.autodesk.com/products/revit/)
+[![Google Antigravity](https://img.shields.io/badge/AI%20Agent-Google%20Antigravity-4285F4?logo=google&logoColor=white)](https://deepmind.google/)
+[![Autodesk Revit](https://img.shields.io/badge/Autodesk%20Revit-2020--2026-orange.svg)](https://www.autodesk.com/products/revit/)
 [![pyRevit](https://img.shields.io/badge/pyRevit-4.8%2B-green.svg)](https://pyrevitlabs.notion.site/)
 [![MCP](https://img.shields.io/badge/MCP-1.0%2B-purple.svg)](https://modelcontextprotocol.io/)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A lightweight, dedicated **Model Context Protocol (MCP)** bridge connecting **Autodesk Revit** with modern AI agents and LLM clients (such as **Claude Desktop**, **Cursor**, **Antigravity**, **Cline**, and others).
+A dedicated, high-performance **Model Context Protocol (MCP)** bridge engineered natively for **Google Antigravity** (and compatible with Claude Desktop, Cursor, Cline, and Windsurf) to connect autonomous AI agents with **Autodesk Revit**.
 
-> **Pure Communication Focus:** This standalone variant contains **strictly communication and execution tools** (Revit API execution, element queries, view screenshots, interactive selection, and visual snips). It is free of third-party voice models, local Whisper dependencies, or speech-to-text overhead.
+> **Communication-First Architecture:** This standalone variant delivers a pure, rock-solid communication layer for Revit automation — free of external voice/speech-to-text models, audio recording, or bloated dependencies. All multimodal interaction (visual markup, view inspection, interactive element selection) happens directly through the MCP protocol and Antigravity's multimodal reasoning engine.
+
+---
+
+## 🚀 Built for Google Antigravity
+
+Antigravity operates as an autonomous BIM engineering assistant with continuous feedback loops directly inside Autodesk Revit:
+
+```
+┌────────────────────────────────────────────────────────┐
+│              Google Antigravity AI Agent               │
+│       (Autonomous BIM Coding & Multimodal Vision)      │
+└───────────────────────────┬────────────────────────────┘
+                            │ stdio (MCP JSON-RPC)
+┌───────────────────────────▼────────────────────────────┐
+│              Revit MCP Server Bridge (Python)          │
+│                    revit_mcp/server.py                 │
+└───────────────────────────┬────────────────────────────┘
+                            │ HTTP / JSON (127.0.0.1:40001+)
+┌───────────────────────────▼────────────────────────────┐
+│               Autodesk Revit (pyRevit)                 │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  Revit MCP Floating HUD (Visual State & Control) │  │
+│  │  - 🎯 Interactive Pick Elements (User Input)     │  │
+│  │  - ✂️ Screen Snip & Visual Markup (Multimodal)   │  │
+│  │  - 🛡️ Modal Dialog Lock Detection                │  │
+│  │  - 🚦 Live Busy/Idle State Indicator             │  │
+│  └────────────────────────┬─────────────────────────┘  │
+│                           │ ExternalEvent              │
+│  ┌────────────────────────▼─────────────────────────┐  │
+│  │  Revit Main UI Thread Execution Engine           │  │
+│  │  (doc, uidoc, uiapp, app, Transactions)          │  │
+│  └──────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────┘
+```
+
+### Key Antigravity Agent Capabilities
+
+1. **Two-Way Interactive User Requests**:
+   - **🎯 Interactive Element Picking (`revit_request_user_selection`)**: When Antigravity needs the user to designate a specific element (e.g., room boundary, clashing pipe, equipment), the Revit HUD button flashes gold/purple. The user clicks the element in Revit, and its ID, category, and metadata are immediately returned to Antigravity without manual typing.
+   - **✂️ Visual Snip & Markup (`revit_request_user_snip`)**: Antigravity can ask the user to visually circle or annotate areas of interest. The user draws arrows/boxes using the built-in screen snipper, and the annotated image is piped straight into Antigravity's vision context.
+2. **Visual Busy State Lifecycle (`revit_set_busy`)**:
+   - The Revit HUD panel turns Gray while Antigravity is processing or executing transactions, and switches back to Green when Antigravity is done and awaiting user input.
+3. **Modal Dialog Safety**:
+   - If a modal window opens in Revit (e.g. warning dialog or file dialog), Revit MCP immediately detects it via Win32 API and returns `HTTP 423 Locked`, alerting Antigravity instead of hanging the agent indefinitely.
+4. **Deterministic Multi-Instance Binding**:
+   - Running multiple Revit versions or multiple documents concurrently? Each instance binds to an incremental port (`40001`, `40002`, ...), and Antigravity locks its session strictly to the target model without accidental cross-project execution.
 
 ---
 
 ## 🌟 Features
 
 - ⚡ **Direct Revit API Execution**: Run arbitrary Python scripts on the Revit main UI thread safely using `ExternalEvent`. Access `doc`, `uidoc`, `uiapp`, and `app`.
-- 🔄 **Multi-Instance Support**: Multiple open Revit models automatically receive incremental ports (`40001`, `40002`, ...). MCP sessions deterministically bind to specific models.
-- 🎯 **Interactive Element Selection**: AI agents can ask the user to pick elements in Revit (`revit_request_user_selection`), flashing the HUD button and returning picked IDs and categories.
+- 🔄 **Multi-Instance Support**: Multiple open Revit models automatically receive incremental ports (`40001`, `40002`, ...).
+- 🎯 **Interactive Element Selection**: AI agents can ask the user to pick elements in Revit (`revit_request_user_selection`).
 - ✂️ **Visual Screen Snip & Markup**: Prompt the user to snip screen regions and annotate them with arrows, boxes, and freehand sketches (`revit_request_user_snip`).
 - 🛡️ **Modal Dialog Protection**: Win32 detection checks whether Revit is blocked by a modal dialog, reporting HTTP 423 Locked instead of freezing requests indefinitely.
 - 📸 **Automated High-Res Screenshots**: Capture the active Revit view as a PNG image directly into the agent's context.
 - 🪟 **Minimal Floating HUD**: Clean WPF window displaying server status, active port, request counter, latency, pin (always-on-top), and compact minimize mode.
-
----
-
-## 🏗️ Architecture
-
-```
-┌───────────────────────────────────────┐
-│     AI Agent / LLM Client             │
-│  (Claude Desktop / Cursor / etc.)     │
-└──────────────────┬────────────────────┘
-                   │ stdio (JSON-RPC)
-┌──────────────────▼────────────────────┐
-│      Revit MCP Server (Python)        │
-│          revit_mcp/server.py          │
-└──────────────────┬────────────────────┘
-                   │ HTTP / JSON (127.0.0.1:40001+)
-┌──────────────────▼────────────────────┐
-│      Autodesk Revit (pyRevit)         │
-│   ┌────────────────────────────────┐  │
-│   │ AsyncHttpServer (HttpListener) │  │
-│   └──────────────┬─────────────────┘  │
-│                  │ ExternalEvent      │
-│   ┌──────────────▼─────────────────┐  │
-│   │  Revit Main UI Thread Execution │  │
-│   │  (doc, uidoc, uiapp, app)      │  │
-│   └────────────────────────────────┘  │
-└───────────────────────────────────────┘
-```
 
 ---
 
@@ -89,9 +108,23 @@ python tests/test_connection.py
 
 ---
 
-### Step 3: Configure Your AI Client
+### Step 3: Configure Your AI Agent
 
-#### Claude Desktop
+#### 🤖 Google Antigravity
+Add the Revit MCP server to your Antigravity configuration or workspace MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "revit": {
+      "command": "python",
+      "args": ["-m", "revit_mcp"]
+    }
+  }
+}
+```
+
+#### 🟣 Claude Desktop
 Add to `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
@@ -105,7 +138,7 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/App
 }
 ```
 
-#### Cursor (.cursor/mcp.json)
+#### 🟦 Cursor (.cursor/mcp.json)
 ```json
 {
   "mcpServers": {
@@ -141,7 +174,7 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/App
 
 ## 💡 Python Execution Pattern
 
-When using `revit_execute_python`, you write code as if you were running inside pyRevit. Always use transactions when modifying the model:
+When using `revit_execute_python`, you write standard Revit API Python code. Always use transactions when modifying the model:
 
 ```python
 from Autodesk.Revit.DB import Transaction, FilteredElementCollector, BuiltInCategory
@@ -155,7 +188,7 @@ t.Start()
 for wall in collector:
     param = wall.LookupParameter("Comments")
     if param and not param.IsReadOnly:
-        param.Set("Verified by MCP")
+        param.Set("Verified by Antigravity")
 t.Commit()
 
 # 3. Return results via response_data

@@ -5,14 +5,26 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "revit-mcp"
 version = "1.0.0"
-description = "Model Context Protocol (MCP) Bridge for Autodesk Revit"
+description = "Model Context Protocol (MCP) Bridge for Google Antigravity & Autodesk Revit"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
     { name = "Open Source Contributors" }
 ]
-keywords = ["revit", "mcp", "bim", "autodesk", "claude", "cursor", "antigravity", "ai", "llm"]
+keywords = [
+    "antigravity",
+    "google-antigravity",
+    "revit",
+    "mcp",
+    "bim",
+    "autodesk",
+    "claude",
+    "cursor",
+    "ai-agent",
+    "llm",
+    "pyrevit"
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
