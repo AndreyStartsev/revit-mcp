@@ -1,6 +1,8 @@
 # Proposal: Add RevitMCP to pyRevit Official Extensions Directory
 
-This document contains the ready-to-submit proposal and Pull Request format to centrally register **RevitMCP** into the official [pyRevit Extensions Directory](https://github.com/pyrevitlabs/pyRevit/blob/master/extensions/extensions.json).
+> 🎉 **Active Pull Request:** [pyrevitlabs/pyRevit#3719](https://github.com/pyrevitlabs/pyRevit/pull/3719) has been submitted to the official pyRevit repository!
+
+This document contains the proposal and Pull Request format to centrally register **RevitMCP** into the official [pyRevit Extensions Directory](https://github.com/pyrevitlabs/pyRevit/blob/master/extensions/extensions.json).
 
 ---
 

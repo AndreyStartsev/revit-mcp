@@ -94,7 +94,7 @@ pyrevit extensions sources add https://raw.githubusercontent.com/AndreyStartsev/
 ```
 Now open Autodesk Revit, navigate to **pyRevit > Settings > Extensions**, select **RevitMCP**, and click **Install**.
 
-> 💡 *Want to see RevitMCP in pyRevit's default built-in directory? See the [pyRevit Official Submission Proposal](PYREVIT_PROPOSAL.md) for the Pull Request template to `pyrevitlabs/pyRevit`.*
+> 💡 *Official pyRevit catalog submission: [Pull Request #3719](https://github.com/pyrevitlabs/pyRevit/pull/3719) is currently open in `pyrevitlabs/pyRevit` (see details in [PYREVIT_PROPOSAL.md](PYREVIT_PROPOSAL.md)).*
 
 #### Option C: Manual Installation
 Clone or copy this repository directly into your pyRevit extensions folder:
