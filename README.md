@@ -75,7 +75,7 @@ A lightweight, dedicated **Model Context Protocol (MCP)** bridge connecting **Au
 Clone this repository and install dependencies:
 
 ```bash
-git clone https://github.com/your-username/revit-mcp.git
+git clone https://github.com/AndreyStartsev/revit-mcp.git
 cd revit-mcp
 
 # Install dependencies or install in editable mode
