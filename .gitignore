@@ -36,10 +36,15 @@ instances/
 screenshots/
 *.png
 *.json
+!extension.json
+!pyrevit_source.json
 !examples/*.json
 !pyrevit_extension/**/*.yaml
 !pyrevit_extension/**/*.xaml
 !pyrevit_extension/**/*.png
+!RevitMCP.tab/**/*.yaml
+!RevitMCP.tab/**/*.xaml
+!RevitMCP.tab/**/*.png
 
 # IDEs
 .idea/

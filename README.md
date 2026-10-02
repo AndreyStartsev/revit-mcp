@@ -75,17 +75,35 @@ Antigravity operates as an autonomous BIM engineering assistant with continuous 
 
 ### Step 1: Install the pyRevit Extension
 
-1. Ensure [pyRevit](https://github.com/eirannejad/pyRevit) is installed in Autodesk Revit.
-2. Copy or symlink the folder `pyrevit_extension/RevitMCP.extension` into your pyRevit extensions directory:
-   ```powershell
-   # Default pyRevit extension directory:
-   %APPDATA%\pyRevit\Extensions\RevitMCP.extension
-   ```
-   Or attach it via pyRevit CLI:
-   ```bash
-   pyrevit extend ui RevitMCP path/to/pyrevit_extension/RevitMCP.extension
-   ```
-3. In Revit, click the **Revit MCP** button on the ribbon tab to start the server. The floating HUD will appear and display **Ready for commands** on `127.0.0.1:40001`.
+You can install the RevitMCP extension into pyRevit centrally using any of the methods below:
+
+#### Option A: Central CLI Installation (Recommended — 1 Command)
+Run in PowerShell / Command Prompt:
+```bash
+pyrevit extend ui RevitMCP https://github.com/AndreyStartsev/revit-mcp.git
+```
+To update in the future:
+```bash
+pyrevit extensions update RevitMCP
+```
+
+#### Option B: Central pyRevit Extension Manager (GUI)
+Register the repository source centrally in pyRevit:
+```bash
+pyrevit extensions sources add https://raw.githubusercontent.com/AndreyStartsev/revit-mcp/main/pyrevit_source.json
+```
+Now open Autodesk Revit, navigate to **pyRevit > Settings > Extensions**, select **RevitMCP**, and click **Install**.
+
+> 💡 *Want to see RevitMCP in pyRevit's default built-in directory? See the [pyRevit Official Submission Proposal](PYREVIT_PROPOSAL.md) for the Pull Request template to `pyrevitlabs/pyRevit`.*
+
+#### Option C: Manual Installation
+Clone or copy this repository directly into your pyRevit extensions folder:
+```powershell
+# Default pyRevit extension directory:
+git clone https://github.com/AndreyStartsev/revit-mcp.git "%APPDATA%\pyRevit\Extensions\RevitMCP.extension"
+```
+
+Once installed, click the **Revit MCP** button on the ribbon tab to start the server. The floating HUD will appear and display **Ready for commands** on `127.0.0.1:40001`.
 
 ---
 

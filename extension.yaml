@@ -1,0 +1,5 @@
+title: "Revit MCP"
+name: "RevitMCP"
+version: "1.0.0"
+author: "Andrey Startsev"
+description: "Model Context Protocol (MCP) Bridge for Google Antigravity & AI agents in Autodesk Revit"
