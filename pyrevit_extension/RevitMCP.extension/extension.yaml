@@ -1,0 +1,5 @@
+title: Revit MCP
+name: RevitMCP
+version: 1.0.0
+author: Open Source Contributors
+description: Model Context Protocol (MCP) Bridge for Autodesk Revit

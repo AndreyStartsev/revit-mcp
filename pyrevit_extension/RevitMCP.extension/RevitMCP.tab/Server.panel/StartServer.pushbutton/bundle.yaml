@@ -1,0 +1,3 @@
+title: "Revit MCP"
+tooltip: "Starts/stops the local HTTP server for AI agents and MCP clients (Claude, Cursor, Antigravity). Green = Running, Gray = Stopped."
+context: zero-doc
