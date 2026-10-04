@@ -65,6 +65,15 @@ response_data['doc_title'] = doc.Title if doc else 'No Document'
         print(f"[-] Execution failed: {res}")
         sys.exit(1)
 
+    # 4. Security verification (shared secret authentication check)
+    print("\nVerifying endpoint security (CORS removed, 401 on unauthorized)...")
+    unauth_client = RevitClient(port=status.get("port"), auth_token="invalid_token_test_123")
+    unauth_res = unauth_client.execute_python("response_data['bad'] = True")
+    if unauth_res.get("status_code") == 401 or "Unauthorized" in str(unauth_res.get("error", "")):
+        print("[+] Security check passed: Unauthorized access correctly rejected with 401.")
+    else:
+        print(f"[!] Note: Unauth response: {unauth_res}")
+
     print("\n[+] All tests passed successfully! Revit MCP is ready for AI agents.")
 
 

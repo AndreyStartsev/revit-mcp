@@ -16,6 +16,7 @@ import traceback
 from typing import Optional, Dict, Any, List
 
 from mcp.server.mcpserver import MCPServer
+from revit_mcp.client import load_auth_token_for_port
 
 CANDIDATE_PORTS = [40001, 40002, 40003, 40004, 40005, 40006, 40007, 40008, 40009, 40010]
 
@@ -25,6 +26,16 @@ SESSION_BINDING_FILE = os.path.join(SAVE_DIR, "session_binding.json")
 
 _BOUND_PORT: Optional[int] = None
 _BOUND_DOC: Optional[str] = None
+
+
+def _get_request_headers(port: int) -> Dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    token = load_auth_token_for_port(port)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+        headers["X-Auth-Token"] = token
+    return headers
+
 
 server = MCPServer(
     name="revit-mcp",
@@ -76,7 +87,7 @@ def _get_all_revit_instances() -> List[Dict[str, Any]]:
 
     for port in open_ports:
         try:
-            req = urllib.request.Request(f"http://127.0.0.1:{port}/api/status", headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/api/status", headers=_get_request_headers(port))
             with urllib.request.urlopen(req, timeout=0.6) as resp:
                 if resp.status == 200:
                     body = resp.read().decode("utf-8")
@@ -97,7 +108,7 @@ def _find_active_revit_port(target_port: Optional[int] = None, target_doc: Optio
     """Finds and maintains a strict binding to a specific Revit instance."""
     if target_port:
         try:
-            req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/status", headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/status", headers=_get_request_headers(target_port))
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
@@ -148,7 +159,7 @@ def _send_revit_execute(code: str, timeout: float = 60.0, target_port: Optional[
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/execute",
         data=data,
-        headers={"Content-Type": "application/json"}
+        headers=_get_request_headers(port)
     )
     
     try:
@@ -193,7 +204,7 @@ def revit_ping(port: Optional[int] = None, doc_name: Optional[str] = None) -> st
         }, indent=2)
 
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/status", headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/status", headers=_get_request_headers(target_port))
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             body = resp.read().decode("utf-8")
             data = json.loads(body)
@@ -437,7 +448,7 @@ def revit_capture_screenshot(port: Optional[int] = None, doc_name: Optional[str]
         return json.dumps({"status": "error", "message": "No active Revit instance found"}, indent=2)
 
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/screenshot", data=b"{}", headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/screenshot", data=b"{}", headers=_get_request_headers(target_port))
         with urllib.request.urlopen(req, timeout=60.0) as resp:
             body = resp.read().decode("utf-8")
             return body
@@ -481,7 +492,7 @@ def revit_request_user_selection(prompt: str, categories: Optional[List[str]] = 
     }
     data = json.dumps(payload).encode("utf-8")
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/request_user_selection", data=data, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/request_user_selection", data=data, headers=_get_request_headers(target_port))
         with urllib.request.urlopen(req, timeout=float(timeout + 5)) as resp:
             return resp.read().decode("utf-8")
     except Exception as ex:
@@ -498,7 +509,7 @@ def revit_request_user_snip(prompt: str, timeout: int = 90, port: Optional[int] 
     payload = {"prompt": prompt, "timeout": timeout}
     data = json.dumps(payload).encode("utf-8")
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/request_user_snip", data=data, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/request_user_snip", data=data, headers=_get_request_headers(target_port))
         with urllib.request.urlopen(req, timeout=float(timeout + 5)) as resp:
             return resp.read().decode("utf-8")
     except Exception as ex:
@@ -515,7 +526,7 @@ def revit_set_busy(busy: bool = True, message: Optional[str] = None, activity: O
     payload = {"busy": busy, "message": message, "activity": activity}
     data = json.dumps(payload).encode("utf-8")
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/set_busy", data=data, headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(f"http://127.0.0.1:{target_port}/api/set_busy", data=data, headers=_get_request_headers(target_port))
         with urllib.request.urlopen(req, timeout=2.0) as resp:
             return resp.read().decode("utf-8")
     except Exception as ex:

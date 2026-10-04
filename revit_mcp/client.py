@@ -4,25 +4,63 @@ Revit Client - Lightweight Python HTTP client for Revit MCP server.
 Enables programmatic interaction with Autodesk Revit over local HTTP.
 """
 
+import os
 import json
+import tempfile
 import urllib.request
 import urllib.error
 from typing import Optional, Dict, Any, List
+
+DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "revit_mcp")
+
+
+def load_auth_token_for_port(port: int) -> Optional[str]:
+    """Finds the shared secret authentication token for a given Revit instance port."""
+    env_token = os.environ.get("REVIT_MCP_AUTH_TOKEN")
+    if env_token:
+        return env_token.strip()
+
+    candidate_dirs = [
+        os.environ.get("REVIT_MCP_CACHE_DIR"),
+        DEFAULT_CACHE_DIR,
+        os.path.join(os.path.expanduser("~"), ".revit_mcp")
+    ]
+
+    for c_dir in candidate_dirs:
+        if not c_dir:
+            continue
+        inst_file = os.path.join(c_dir, "instances", f"instance_{port}.json")
+        if os.path.exists(inst_file):
+            try:
+                with open(inst_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    token = data.get("auth_token")
+                    if token:
+                        return str(token).strip()
+            except Exception:
+                pass
+    return None
 
 
 class RevitClient:
     """Client for communicating directly with Revit HTTP server."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 40001, timeout: float = 60.0):
+    def __init__(self, host: str = "127.0.0.1", port: int = 40001, timeout: float = 60.0, auth_token: Optional[str] = None):
         self.host = host
         self.port = port
         self.timeout = timeout
         self.base_url = f"http://{self.host}:{self.port}"
+        self.auth_token = auth_token
 
     def _request(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
         data = None
         headers = {"Content-Type": "application/json"}
+
+        token = self.auth_token or load_auth_token_for_port(self.port)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            headers["X-Auth-Token"] = token
         
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")

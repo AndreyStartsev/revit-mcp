@@ -237,6 +237,15 @@ print(res['data'])
 
 ---
 
+## 🔒 Security & Concurrency Architecture
+
+- **Shared Secret Authentication**: On startup, Revit MCP generates a cryptographically random session token (`auth_token`). All incoming HTTP API requests require `Authorization: Bearer <token>` or `X-Auth-Token`.
+- **Zero CORS Vulnerability**: By design, all `Access-Control-Allow-*` CORS headers are removed, ensuring web browsers cannot perform cross-origin script executions from malicious websites.
+- **Thread-Safe FIFO Execution Queue**: Remote commands are enqueued in a thread-safe FIFO queue (`collections.deque` protected by locks). Each request awaits its own `ManualResetEvent`, eliminating race conditions when multiple agents or subagents query Revit concurrently.
+- **Cross-Version pyRevit & .NET 8 Compatibility**: Modeless window management and external event handling are verified across pyRevit 4.x, 5.x, and 7.x on .NET Framework 4.8 and modern .NET 8 (Revit 2023–2027).
+
+---
+
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).

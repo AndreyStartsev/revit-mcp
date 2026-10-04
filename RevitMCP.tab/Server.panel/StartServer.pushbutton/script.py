@@ -18,6 +18,9 @@ import datetime
 import traceback
 import tempfile
 import shutil
+import uuid
+import threading
+from collections import deque
 
 # Default shared cache directory
 DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "revit_mcp")
@@ -79,6 +82,35 @@ from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 
 DOMAIN_WINDOW_KEY = "Revit_MCP_Server_Window"
 BASE_PORT = 40001
+
+
+def get_registered_window(key):
+    """Safely retrieves a modeless window across pyRevit 4.x, 5.x, and 7.x (.NET 8)."""
+    try:
+        if hasattr(forms, "check_modelesswindow"):
+            return forms.check_modelesswindow(key)
+    except Exception:
+        pass
+    try:
+        from System import AppDomain
+        return AppDomain.CurrentDomain.GetData(key)
+    except Exception:
+        return None
+
+
+def set_registered_window(key, window):
+    """Safely registers a modeless window across pyRevit 4.x, 5.x, and 7.x (.NET 8)."""
+    try:
+        if hasattr(forms, "set_modelesswindow"):
+            forms.set_modelesswindow(key, window)
+            return
+    except Exception:
+        pass
+    try:
+        from System import AppDomain
+        AppDomain.CurrentDomain.SetData(key, window)
+    except Exception:
+        pass
 
 
 def load_wpf_bitmap(file_path, width=32, height=32):
@@ -306,59 +338,100 @@ def is_current_process_foreground():
         return False
 
 
+class ExecutionTask(object):
+    """Encapsulates a single execution request with its own synchronization event and result holder."""
+    def __init__(self, code):
+        try:
+            self.task_id = uuid.uuid4().hex[:8]
+        except Exception:
+            self.task_id = System.Guid.NewGuid().ToString("N")[:8]
+        self.code = code
+        self.done_event = System.Threading.ManualResetEvent(False)
+        self.result = None
+
+
 class RevitExecutionHandler(IExternalEventHandler):
-    """Executes arbitrary Python code inside Revit on the main UI thread via ExternalEvent."""
+    """Thread-safe execution handler that processes a FIFO queue of execution tasks on Revit's UI thread."""
     def __init__(self, window=None):
         self.window = window
-        self.code_to_run = None
-        self.result = {}
-        self.evt_done = System.Threading.ManualResetEvent(False)
+        self._lock = threading.Lock()
+        self._queue = deque()
+
+    def enqueue(self, code):
+        """Enqueues code to run and returns an ExecutionTask with its own done_event."""
+        task = ExecutionTask(code)
+        with self._lock:
+            self._queue.append(task)
+        return task
+
+    def clear(self):
+        """Clears pending tasks and unblocks waiting threads on shutdown."""
+        with self._lock:
+            while self._queue:
+                task = self._queue.popleft()
+                task.result = {"success": False, "error": "Server stopped"}
+                try:
+                    task.done_event.Set()
+                except Exception:
+                    pass
 
     def Execute(self, uiapp):
-        try:
-            log_debug("Executing remote code in Revit UI thread...")
-            doc = uiapp.ActiveUIDocument.Document if uiapp.ActiveUIDocument else None
-            uidoc = uiapp.ActiveUIDocument
-            app = uiapp.Application
+        """Processes all queued tasks sequentially on the Revit UI thread."""
+        while True:
+            task = None
+            with self._lock:
+                if self._queue:
+                    task = self._queue.popleft()
+            if not task:
+                break
 
-            response_data = {}
-            scope = {
-                'uiapp': uiapp,
-                'app': app,
-                'uidoc': uidoc,
-                'doc': doc,
-                'response_data': response_data,
-                '__builtins__': __builtins__
-            }
-
-            exec(self.code_to_run, scope)
-            
-            result_data = scope.get('response_data', response_data)
-            self.result = {
-                "success": True,
-                "data": result_data,
-                "message": "Execution finished successfully"
-            }
-            log_debug("Execution finished successfully.")
-        except Exception as ex:
-            tb = traceback.format_exc()
-            self.result = {
-                "success": False,
-                "error": str(ex),
-                "traceback": tb
-            }
-            log_debug("Execution error: {}\n{}".format(ex, tb))
-        except:
-            self.result = {
-                "success": False,
-                "error": "Native unhandled exception during script execution."
-            }
-            log_debug("Execution native unhandled exception.")
-        finally:
             try:
-                self.evt_done.Set()
+                log_debug("Executing remote task {} in Revit UI thread...".format(task.task_id))
+                doc = uiapp.ActiveUIDocument.Document if uiapp.ActiveUIDocument else None
+                uidoc = uiapp.ActiveUIDocument
+                app = uiapp.Application
+
+                response_data = {}
+                scope = {
+                    'uiapp': uiapp,
+                    'app': app,
+                    'uidoc': uidoc,
+                    'doc': doc,
+                    'response_data': response_data,
+                    '__builtins__': __builtins__
+                }
+
+                exec(task.code, scope)
+                
+                result_data = scope.get('response_data', response_data)
+                task.result = {
+                    "success": True,
+                    "data": result_data,
+                    "message": "Execution finished successfully",
+                    "task_id": task.task_id
+                }
+                log_debug("Task {} finished successfully.".format(task.task_id))
+            except Exception as ex:
+                tb = traceback.format_exc()
+                task.result = {
+                    "success": False,
+                    "error": str(ex),
+                    "traceback": tb,
+                    "task_id": task.task_id
+                }
+                log_debug("Task {} error: {}\n{}".format(task.task_id, ex, tb))
             except:
-                pass
+                task.result = {
+                    "success": False,
+                    "error": "Native unhandled exception during script execution.",
+                    "task_id": task.task_id
+                }
+                log_debug("Task {} native unhandled exception.".format(task.task_id))
+            finally:
+                try:
+                    task.done_event.Set()
+                except Exception:
+                    pass
 
     def GetName(self):
         return "Revit MCP Remote Execution Handler"
@@ -373,6 +446,13 @@ class AsyncHttpServer(object):
         self.window = window
         self.listener = None
         self.running = False
+        try:
+            self.auth_token = uuid.uuid4().hex
+        except Exception:
+            self.auth_token = System.Guid.NewGuid().ToString("N")
+        env_token = os.environ.get("REVIT_MCP_AUTH_TOKEN")
+        if env_token:
+            self.auth_token = env_token.strip()
 
     def get_status_info(self):
         cur_doc = None
@@ -410,27 +490,38 @@ class AsyncHttpServer(object):
             "active_view": view_name,
             "is_family_doc": is_family,
             "is_foreground": is_fg,
+            "auth_token": self.auth_token,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
     def _register_instance_file(self):
-        try:
-            inst_dir = os.path.join(SAVE_DIR, "instances")
-            if not os.path.exists(inst_dir):
-                os.makedirs(inst_dir)
-            inst_path = os.path.join(inst_dir, "instance_{}.json".format(self.port))
-            with open(inst_path, "w") as f:
-                json.dump(self.get_status_info(), f, indent=2)
-        except Exception as ex:
-            log_debug("_register_instance_file error: {}".format(ex))
+        info = self.get_status_info()
+        candidate_dirs = [
+            os.path.join(SAVE_DIR, "instances"),
+            os.path.join(os.path.expanduser("~"), ".revit_mcp", "instances")
+        ]
+        for inst_dir in candidate_dirs:
+            try:
+                if not os.path.exists(inst_dir):
+                    os.makedirs(inst_dir)
+                inst_path = os.path.join(inst_dir, "instance_{}.json".format(self.port))
+                with open(inst_path, "w") as f:
+                    json.dump(info, f, indent=2)
+            except Exception as ex:
+                log_debug("_register_instance_file error in {}: {}".format(inst_dir, ex))
 
     def _unregister_instance_file(self):
-        try:
-            inst_path = os.path.join(SAVE_DIR, "instances", "instance_{}.json".format(self.port))
-            if os.path.exists(inst_path):
-                os.remove(inst_path)
-        except Exception as ex:
-            log_debug("_unregister_instance_file error: {}".format(ex))
+        candidate_dirs = [
+            os.path.join(SAVE_DIR, "instances"),
+            os.path.join(os.path.expanduser("~"), ".revit_mcp", "instances")
+        ]
+        for inst_dir in candidate_dirs:
+            try:
+                inst_path = os.path.join(inst_dir, "instance_{}.json".format(self.port))
+                if os.path.exists(inst_path):
+                    os.remove(inst_path)
+            except Exception as ex:
+                log_debug("_unregister_instance_file error in {}: {}".format(inst_dir, ex))
 
     def start(self):
         hl_class = HttpListener
@@ -492,17 +583,42 @@ class AsyncHttpServer(object):
             request = context.Request
             response = context.Response
 
-            response.AddHeader("Access-Control-Allow-Origin", "*")
-            response.AddHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-            response.AddHeader("Access-Control-Allow-Headers", "Content-Type")
+            # SECURITY: Do NOT include Access-Control-Allow-Origin: *
+            # Deleting all CORS headers prevents arbitrary web pages from making cross-origin requests.
 
             method = request.HttpMethod.upper()
             path = request.Url.AbsolutePath.lower()
             log_debug("Received HTTP {} to: {}".format(method, path))
 
+            # Reject CORS preflight requests
             if method == "OPTIONS":
-                response.StatusCode = 200
+                response.StatusCode = 405
                 response.Close()
+                return
+
+            # Shared secret authentication verification
+            auth_header = request.Headers.Get("Authorization") or request.Headers.Get("X-Auth-Token") or ""
+            token = ""
+            if auth_header.lower().startswith("bearer "):
+                token = auth_header[7:].strip()
+            else:
+                token = auth_header.strip()
+
+            if not token and request.Url.Query:
+                q = request.Url.Query.lstrip("?")
+                for pair in q.split("&"):
+                    if pair.startswith("token="):
+                        token = pair.split("=", 1)[1]
+                        break
+
+            if self.auth_token and token != self.auth_token:
+                log_debug("Unauthorized request to {} from {}".format(path, request.RemoteEndPoint))
+                self._write_response(response, {
+                    "success": False,
+                    "error": "Unauthorized: Missing or invalid authentication token. Pass 'Authorization: Bearer <token>'."
+                }, 401)
+                if self.window:
+                    self.window.notify_request_finished(401, time.time() - t_start, path)
                 return
 
             if self.window:
@@ -570,18 +686,21 @@ class AsyncHttpServer(object):
                         self.window.notify_request_finished(400, time.time() - t_start, path)
                     return
 
-                self.handler.code_to_run = code
-                self.handler.evt_done.Reset()
+                task = self.handler.enqueue(code)
                 self.ext_event.Raise()
 
-                if self.handler.evt_done.WaitOne(60000):
-                    res_data = self.handler.result
+                if task.done_event.WaitOne(60000):
+                    res_data = task.result or {}
                     status_code = 200 if res_data.get("success") else 500
                     self._write_response(response, res_data, status_code)
                 else:
-                    log_debug("Execution timed out (60s).")
+                    log_debug("Task {} execution timed out (60s).".format(task.task_id))
                     status_code = 504
-                    self._write_response(response, {"success": False, "error": "Execution timed out (60s)"}, 504)
+                    self._write_response(response, {
+                        "success": False,
+                        "error": "Execution timed out (60s)",
+                        "task_id": task.task_id
+                    }, 504)
 
                 if self.window:
                     self.window.notify_request_finished(status_code, time.time() - t_start, path)
@@ -605,19 +724,23 @@ class AsyncHttpServer(object):
                         self.window.notify_request_finished(423, time.time() - t_start, "screenshot")
                     return
 
-                self.handler.code_to_run = SCREENSHOT_PYTHON_CODE
-                self.handler.evt_done.Reset()
+                task = self.handler.enqueue(SCREENSHOT_PYTHON_CODE)
                 self.ext_event.Raise()
 
-                if self.handler.evt_done.WaitOne(60000):
-                    res_data = self.handler.result
+                if task.done_event.WaitOne(60000):
+                    res_data = task.result or {}
                     status_code = 200 if res_data.get("success") else 500
                     self._write_response(response, res_data, status_code)
                 else:
-                    self._write_response(response, {"success": False, "error": "Screenshot timed out (60s)"}, 504)
+                    status_code = 504
+                    self._write_response(response, {
+                        "success": False,
+                        "error": "Screenshot timed out (60s)",
+                        "task_id": task.task_id
+                    }, 504)
 
                 if self.window:
-                    self.window.notify_request_finished(200, time.time() - t_start, "screenshot")
+                    self.window.notify_request_finished(status_code, time.time() - t_start, "screenshot")
 
             elif path in ["/api/request_user_selection", "/api/request_user_selection/"] and method == "POST":
                 reader = System.IO.StreamReader(request.InputStream, request.ContentEncoding)
@@ -757,6 +880,11 @@ class AsyncHttpServer(object):
         log_debug("Stopping AsyncHttpServer...")
         self.running = False
         self._unregister_instance_file()
+        if self.handler:
+            try:
+                self.handler.clear()
+            except Exception:
+                pass
         if self.listener:
             try:
                 if getattr(self.listener, "IsListening", False):
@@ -823,6 +951,8 @@ class RevitServerWindow(forms.WPFWindow):
         if hasattr(self, "CompactCloseBtn"):
             self.CompactCloseBtn.Click += lambda s, e: self.Hide()
 
+        self.Closed += self._on_window_closed
+
         self.ToggleBtn.Click += self._on_toggle_clicked
         if hasattr(self, "CompactToggleBtn"):
             self.CompactToggleBtn.Click += self._on_toggle_clicked
@@ -834,6 +964,14 @@ class RevitServerWindow(forms.WPFWindow):
         self.ScreenshotBtn.Click += self._on_screenshot_clicked
         if hasattr(self, "CompactScreenshotBtn"):
             self.CompactScreenshotBtn.Click += self._on_screenshot_clicked
+
+    def _on_window_closed(self, sender, e):
+        try:
+            if self.http_server:
+                self.http_server.stop()
+        except Exception:
+            pass
+        set_registered_window(DOMAIN_WINDOW_KEY, None)
 
     def _position_window(self):
         try:
@@ -1108,17 +1246,20 @@ class RevitServerWindow(forms.WPFWindow):
 
 
 def main():
-    # pyRevit persistent window pattern
-    win = forms.check_modelesswindow(DOMAIN_WINDOW_KEY)
+    # Cross-version modeless window pattern (pyRevit 4.x / 5.x / 7.x / .NET 8)
+    win = get_registered_window(DOMAIN_WINDOW_KEY)
     if win:
-        if not win.IsVisible:
-            win.Show()
-        win.Activate()
-        return
+        try:
+            if not win.IsVisible:
+                win.Show()
+            win.Activate()
+            return
+        except Exception:
+            set_registered_window(DOMAIN_WINDOW_KEY, None)
 
     xaml_path = os.path.join(os.path.dirname(__file__), "ui.xaml")
     window = RevitServerWindow(xaml_path)
-    forms.set_modelesswindow(DOMAIN_WINDOW_KEY, window)
+    set_registered_window(DOMAIN_WINDOW_KEY, window)
     window.start_server()
     window.Show()
 
