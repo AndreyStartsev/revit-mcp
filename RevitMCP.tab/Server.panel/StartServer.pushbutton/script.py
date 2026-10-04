@@ -1166,6 +1166,9 @@ class RevitServerWindow(forms.WPFWindow):
 
     def set_theme_busy(self, status_msg="Agent is executing...", activity_msg="Processing command..."):
         try:
+            # If modal dialog is blocking Revit, preserve modal alert and DO NOT overwrite with busy theme!
+            if getattr(self, "blinking_button", None) == "modal":
+                return
             # Noticeably lighter slate gray theme for clear busy visibility
             b1 = self._brush(82, 86, 98)
             b2 = self._brush(130, 140, 160)
@@ -1195,6 +1198,8 @@ class RevitServerWindow(forms.WPFWindow):
             try:
                 self.request_count += 1
                 self.RequestCountText.Text = "Requests: {}".format(self.request_count)
+                if getattr(self, "blinking_button", None) == "modal":
+                    return
                 if not getattr(self, "is_agent_busy", False):
                     self.set_theme_busy("Active: {} {}".format(method, path), "Processing request on port {}...".format(self.http_server.port if self.http_server else ""))
                 else:
@@ -1207,6 +1212,8 @@ class RevitServerWindow(forms.WPFWindow):
         def update():
             try:
                 ms = int(duration_sec * 1000)
+                if getattr(self, "blinking_button", None) == "modal":
+                    return
                 # If agent explicitly set busy state, preserve gray theme and active status!
                 if getattr(self, "is_agent_busy", False):
                     self.ActivityText.Text = "{} finished ({}ms)".format(path, ms)
@@ -1246,9 +1253,12 @@ class RevitServerWindow(forms.WPFWindow):
 
     def start_modal_blinking(self, modal_title="Modal Dialog"):
         try:
+            self.stop_blinking()
             self.blinking_button = "modal"
+            self.modal_dialog_title = modal_title or "Modal Dialog"
             b_yellow = self._brush(241, 196, 15)
-            b_card = self._brush(50, 45, 20)
+            b_card = self._brush(65, 52, 18)
+            b_border = self._brush(241, 196, 15)
             if b_yellow:
                 self.StatusIndicator.Fill = b_yellow
                 self.StatusText.Foreground = b_yellow
@@ -1258,32 +1268,47 @@ class RevitServerWindow(forms.WPFWindow):
                     self.CompactStatusText.Foreground = b_yellow
             if b_card:
                 self.StatusCardBorder.Background = b_card
+            if b_border:
+                self.MainBorder.BorderBrush = b_border
             self.StatusText.Text = "WAITING: Modal Dialog Open"
             if hasattr(self, "CompactStatusText"):
                 self.CompactStatusText.Text = "Modal"
-            self.ActivityText.Text = "Revit is blocked by '{}'. Close it to resume.".format(modal_title or "dialog")
+            self.ActivityText.Text = "Revit is blocked by '{}'. Close it to resume.".format(self.modal_dialog_title)
+
+            try:
+                from System.Windows.Threading import DispatcherTimer
+                self.blinking_timer = DispatcherTimer()
+                self.blinking_timer.Interval = System.TimeSpan.FromMilliseconds(450)
+                self.blinking_timer.Tick += self._on_blink_tick
+                self.blinking_timer.Start()
+            except Exception as ex:
+                log_debug("DispatcherTimer modal error: {}".format(ex))
         except Exception as ex:
             log_debug("start_modal_blinking error: {}".format(ex))
 
     def stop_modal_blinking(self):
         try:
             if self.blinking_button == "modal":
-                self.blinking_button = None
-                b_green = self._brush(46, 204, 113)
-                b_card = self._brush(18, 18, 23)
-                if b_green:
-                    self.StatusIndicator.Fill = b_green
-                    self.StatusText.Foreground = b_green
-                    if hasattr(self, "CompactStatusIndicator"):
-                        self.CompactStatusIndicator.Fill = b_green
+                self.stop_blinking()
+                if getattr(self, "is_agent_busy", False):
+                    self.set_theme_busy()
+                else:
+                    self.set_theme_idle()
+                    b_green = self._brush(46, 204, 113)
+                    b_card = self._brush(18, 18, 23)
+                    if b_green:
+                        self.StatusIndicator.Fill = b_green
+                        self.StatusText.Foreground = b_green
+                        if hasattr(self, "CompactStatusIndicator"):
+                            self.CompactStatusIndicator.Fill = b_green
+                        if hasattr(self, "CompactStatusText"):
+                            self.CompactStatusText.Foreground = b_green
+                    if b_card:
+                        self.StatusCardBorder.Background = b_card
+                    self.StatusText.Text = "Ready for commands"
                     if hasattr(self, "CompactStatusText"):
-                        self.CompactStatusText.Foreground = b_green
-                if b_card:
-                    self.StatusCardBorder.Background = b_card
-                self.StatusText.Text = "Ready for commands"
-                if hasattr(self, "CompactStatusText"):
-                    self.CompactStatusText.Text = "Ready"
-                self.ActivityText.Text = "Listening on 127.0.0.1:{}...".format(self.http_server.port if self.http_server else "")
+                        self.CompactStatusText.Text = "Ready"
+                    self.ActivityText.Text = "Listening on 127.0.0.1:{}...".format(self.http_server.port if self.http_server else "")
         except Exception as ex:
             log_debug("stop_modal_blinking error: {}".format(ex))
 
@@ -1321,15 +1346,35 @@ class RevitServerWindow(forms.WPFWindow):
 
     def _on_blink_tick(self, sender, e):
         try:
-            self.blinking_state = not self.blinking_state
+            self.blinking_state = not getattr(self, "blinking_state", False)
             if self.blinking_button == "select":
                 btn = self.SelectBtn
                 b = self._brush(241, 196, 15) if self.blinking_state else self._brush(142, 68, 173)
                 if b: btn.Background = b
+                if hasattr(self, "CompactSelectBtn"):
+                    self.CompactSelectBtn.Background = b
             elif self.blinking_button == "screenshot":
                 btn = self.ScreenshotBtn
                 b = self._brush(241, 196, 15) if self.blinking_state else self._brush(41, 128, 185)
                 if b: btn.Background = b
+                if hasattr(self, "CompactScreenshotBtn"):
+                    self.CompactScreenshotBtn.Background = b
+            elif self.blinking_button == "modal":
+                # High-visibility pulsating animation for modal dialog warning
+                b_alert = self._brush(241, 196, 15) if self.blinking_state else self._brush(230, 126, 34)
+                b_card = self._brush(75, 60, 20) if self.blinking_state else self._brush(42, 32, 12)
+                b_border = self._brush(241, 196, 15) if self.blinking_state else self._brush(140, 80, 20)
+                if b_alert:
+                    self.StatusIndicator.Fill = b_alert
+                    self.StatusText.Foreground = b_alert
+                    if hasattr(self, "CompactStatusIndicator"):
+                        self.CompactStatusIndicator.Fill = b_alert
+                    if hasattr(self, "CompactStatusText"):
+                        self.CompactStatusText.Foreground = b_alert
+                if b_card:
+                    self.StatusCardBorder.Background = b_card
+                if b_border:
+                    self.MainBorder.BorderBrush = b_border
         except Exception as ex:
             log_debug("_on_blink_tick error: {}".format(ex))
 
@@ -1340,8 +1385,14 @@ class RevitServerWindow(forms.WPFWindow):
                 self.blinking_timer = None
             b_purple = self._brush(142, 68, 173)
             b_blue = self._brush(41, 128, 185)
-            if b_purple: self.SelectBtn.Background = b_purple
-            if b_blue: self.ScreenshotBtn.Background = b_blue
+            if b_purple:
+                self.SelectBtn.Background = b_purple
+                if hasattr(self, "CompactSelectBtn"):
+                    self.CompactSelectBtn.Background = b_purple
+            if b_blue:
+                self.ScreenshotBtn.Background = b_blue
+                if hasattr(self, "CompactScreenshotBtn"):
+                    self.CompactScreenshotBtn.Background = b_blue
             self.blinking_button = None
         except Exception as ex:
             log_debug("stop_blinking error: {}".format(ex))
