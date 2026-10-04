@@ -42,9 +42,15 @@
                         <TextBlock Name="PortBadge" Text=" :40001" FontSize="11" Foreground="#4DA8DA" FontWeight="SemiBold" VerticalAlignment="Center" Margin="4,0,0,0"/>
                     </StackPanel>
 
-                    <Button Grid.Column="3" Name="PinBtn" Content="📌" Width="22" Height="22" Background="Transparent" Foreground="#888899" BorderThickness="0" FontSize="11" Cursor="Hand" ToolTip="Pin window (Always on Top)" Margin="0,0,2,0"/>
-                    <Button Grid.Column="4" Name="MinBtn" Content="🗕" Width="22" Height="22" Background="Transparent" Foreground="#888899" BorderThickness="0" FontSize="11" Cursor="Hand" ToolTip="Minimize to Square Panel" Margin="0,0,2,0"/>
-                    <Button Grid.Column="5" Name="CloseButton" Content="✕" Width="20" Height="20" Background="Transparent" Foreground="#888899" BorderThickness="0" FontWeight="Bold" FontSize="11" Cursor="Hand"/>
+                    <Button Grid.Column="3" Name="PinBtn" Width="24" Height="24" Background="Transparent" Foreground="#888899" BorderThickness="0" Cursor="Hand" ToolTip="Pin window (Always on Top)" Margin="0,0,2,0" Padding="0">
+                        <Path Data="M4,1 L8,1 L8,4 L11,7 L11,9 L7,9 L7,13 L5,13 L5,9 L1,9 L1,7 L4,4 Z" Fill="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" Stretch="Uniform" Width="9" Height="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Grid.Column="4" Name="MinBtn" Width="24" Height="24" Background="Transparent" Foreground="#888899" BorderThickness="0" Cursor="Hand" ToolTip="Minimize to Square Panel" Margin="0,0,2,0" Padding="0">
+                        <Path Data="M1,6 L9,6" Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" StrokeThickness="1.8" Stretch="Uniform" Width="9" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Grid.Column="5" Name="CloseButton" Width="24" Height="24" Background="Transparent" Foreground="#888899" BorderThickness="0" Cursor="Hand" ToolTip="Close" Padding="0">
+                        <Path Data="M1,1 L9,9 M9,1 L1,9" Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" StrokeThickness="1.5" Stretch="Uniform" Width="9" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
                 </Grid>
 
                 <!-- Status and Live Activity Panel -->
@@ -100,9 +106,10 @@
             </Grid>
 
             <!-- COMPACT SQUARE VIEW (Minimalist Icon Badge) -->
-            <Grid Name="CompactView" Margin="8,7,8,7" Visibility="Collapsed">
+            <Grid Name="CompactView" Margin="10,10,10,10" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
@@ -122,27 +129,42 @@
                     
                     <Border Grid.Column="2" Background="Transparent"/>
 
-                    <Button Grid.Column="3" Name="CompactPinBtn" Content="📌" Width="18" Height="20" Background="Transparent" Foreground="#888899" BorderThickness="0" FontSize="10" Cursor="Hand" ToolTip="Pin window (Always on Top)"/>
-                    <Button Grid.Column="4" Name="CompactMinBtn" Content="⤢" Width="18" Height="20" Background="Transparent" Foreground="#888899" BorderThickness="0" FontSize="10" Cursor="Hand" ToolTip="Expand to Full Panel"/>
-                    <Button Grid.Column="5" Name="CompactCloseBtn" Content="✕" Width="18" Height="20" Background="Transparent" Foreground="#888899" BorderThickness="0" FontWeight="Bold" FontSize="10" Cursor="Hand"/>
+                    <Button Grid.Column="3" Name="CompactPinBtn" Width="20" Height="20" Background="Transparent" Foreground="#888899" BorderThickness="0" Cursor="Hand" ToolTip="Pin window (Always on Top)" Margin="0,0,2,0" Padding="0">
+                        <Path Data="M4,1 L8,1 L8,4 L11,7 L11,9 L7,9 L7,13 L5,13 L5,9 L1,9 L1,7 L4,4 Z" Fill="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" Stretch="Uniform" Width="8" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Grid.Column="4" Name="CompactMinBtn" Width="20" Height="20" Background="Transparent" Foreground="#888899" BorderThickness="0" Cursor="Hand" ToolTip="Expand to Full Panel" Margin="0,0,2,0" Padding="0">
+                        <Path Data="M1,1 L9,1 L9,9 L1,9 Z M1,3.5 L9,3.5" Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" StrokeThickness="1.2" Fill="Transparent" Stretch="Uniform" Width="8" Height="8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button Grid.Column="5" Name="CompactCloseBtn" Width="20" Height="20" Background="Transparent" Foreground="#888899" BorderThickness="0" Cursor="Hand" ToolTip="Close" Padding="0">
+                        <Path Data="M1,1 L9,9 M9,1 L1,9" Stroke="{Binding RelativeSource={RelativeSource AncestorType=Button}, Path=Foreground}" StrokeThickness="1.5" Stretch="Uniform" Width="8" Height="8" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
                 </Grid>
 
+                <!-- Compact Middle Row: Port Badge & Status Dot -->
+                <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Name="CompactPortBadge" Text=":40001" FontSize="11" Foreground="#4DA8DA" FontWeight="Bold" HorizontalAlignment="Center"/>
+                    <TextBlock Name="CompactStatusText" Text="Ready" FontSize="9" Foreground="#2ECC71" FontWeight="Medium" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                </StackPanel>
+
                 <!-- Compact Bottom Row: Action Icons -->
-                <Grid Grid.Row="1" Margin="0,7,0,0" HorizontalAlignment="Center">
+                <Grid Grid.Row="2" HorizontalAlignment="Center" Margin="0,0,0,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <Button Grid.Column="0" Name="CompactSelectBtn" Content="🎯" Width="24" Height="24" Background="#8E44AD" Foreground="#FFFFFF" BorderThickness="0" FontSize="11" Cursor="Hand" ToolTip="Pick Elements in Model" Margin="0,0,3,0">
-                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
+                    <Button Grid.Column="0" Name="CompactSelectBtn" Width="34" Height="32" Background="#8E44AD" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" ToolTip="Pick Elements in Model" Margin="0,0,5,0" Padding="0">
+                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="6"/></Style></Button.Resources>
+                        <Path Data="M8,1 A7,7 0 1 0 8,15 A7,7 0 1 0 8,1 M8,4 A4,4 0 1 0 8,12 A4,4 0 1 0 8,4 M8,7 A1,1 0 1 0 8,9 A1,1 0 1 0 8,7 M8,0 L8,3 M8,13 L8,16 M0,8 L3,8 M13,8 L16,8" Stroke="White" StrokeThickness="1.2" Stretch="Uniform" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
-                    <Button Grid.Column="1" Name="CompactScreenshotBtn" Content="✂️" Width="24" Height="24" Background="#2980B9" Foreground="#FFFFFF" BorderThickness="0" FontSize="11" Cursor="Hand" ToolTip="Snip &amp; Draw" Margin="0,0,3,0">
-                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
+                    <Button Grid.Column="1" Name="CompactScreenshotBtn" Width="34" Height="32" Background="#2980B9" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" ToolTip="Snip &amp; Draw" Margin="0,0,5,0" Padding="0">
+                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="6"/></Style></Button.Resources>
+                        <Path Data="M3,0 L3,13 L16,13 M0,3 L13,3 L13,16" Stroke="White" StrokeThickness="2" Stretch="Uniform" Width="13" Height="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
-                    <Button Grid.Column="2" Name="CompactToggleBtn" Content="⏹" Width="24" Height="24" Background="#E74C3C" Foreground="#FFFFFF" BorderThickness="0" FontSize="11" Cursor="Hand" ToolTip="Stop / Start MCP Server">
-                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="4"/></Style></Button.Resources>
+                    <Button Grid.Column="2" Name="CompactToggleBtn" Width="34" Height="32" Background="#E74C3C" Foreground="#FFFFFF" BorderThickness="0" Cursor="Hand" ToolTip="Stop / Start MCP Server" Padding="0">
+                        <Button.Resources><Style TargetType="Border"><Setter Property="CornerRadius" Value="6"/></Style></Button.Resources>
+                        <Rectangle Width="10" Height="10" Fill="White" RadiusX="1" RadiusY="1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
                 </Grid>
             </Grid>

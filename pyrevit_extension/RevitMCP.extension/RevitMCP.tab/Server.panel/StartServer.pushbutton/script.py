@@ -1110,8 +1110,8 @@ class RevitServerWindow(forms.WPFWindow):
             if self.is_compact:
                 self.ExpandedView.Visibility = vis_exp
                 self.CompactView.Visibility = vis_cmp
-                self.Width = 140
-                self.Height = 75
+                self.Width = 150
+                self.Height = 150
             else:
                 self.CompactView.Visibility = vis_cmp
                 self.ExpandedView.Visibility = vis_exp
@@ -1435,6 +1435,12 @@ class RevitServerWindow(forms.WPFWindow):
                 if hasattr(self, "CompactStatusIndicator"):
                     self.CompactStatusIndicator.Fill = b_green
                 self.StatusText.Foreground = b_green
+            if hasattr(self, "CompactPortBadge"):
+                self.CompactPortBadge.Text = ":{}".format(self.http_server.port)
+            if hasattr(self, "CompactStatusText"):
+                self.CompactStatusText.Text = "Ready"
+                if b_green:
+                    self.CompactStatusText.Foreground = b_green
             self.StatusText.Text = "Ready for commands"
             self.ActivityText.Text = "Listening on 127.0.0.1:{}...".format(self.http_server.port)
             update_ribbon_button_icon(True)
