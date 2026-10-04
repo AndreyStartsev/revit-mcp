@@ -138,7 +138,7 @@ def load_wpf_bitmap(file_path, width=32, height=32):
     return None
 
 
-def update_ribbon_button_icon(is_active):
+def update_ribbon_button_icon(is_active, btn_dir=None):
     try:
         try:
             clr.AddReference("AdWindows")
@@ -146,7 +146,14 @@ def update_ribbon_button_icon(is_active):
             pass
         import Autodesk.Windows as AdWin
         
-        btn_dir = os.path.dirname(__file__)
+        if not btn_dir:
+            try:
+                btn_dir = os.path.dirname(__file__)
+            except Exception:
+                btn_dir = None
+        if not btn_dir or not os.path.exists(btn_dir):
+            btn_dir = r"C:\Users\user49\AppData\Roaming\pyRevit\Extensions\RevitMCP.extension\RevitMCP.tab\Server.panel\StartServer.pushbutton"
+        
         large_name = "on.png" if is_active else "off.png"
         small_name = "on.small.png" if is_active else "off.small.png"
         
@@ -970,6 +977,11 @@ class RevitServerWindow(forms.WPFWindow):
         except Exception as ex:
             log_debug("Failed to cache types on window: {}".format(ex))
 
+        try:
+            self.btn_dir = os.path.dirname(__file__)
+        except Exception:
+            self.btn_dir = None
+
         self._init_controls()
         self._init_events()
         self._position_window()
@@ -1056,8 +1068,16 @@ class RevitServerWindow(forms.WPFWindow):
         except Exception as ex:
             log_debug("_init_events error: {}".format(ex))
 
+    def update_icon(self, is_active):
+        try:
+            b_dir = getattr(self, "btn_dir", None)
+            update_ribbon_button_icon(is_active, b_dir)
+        except Exception as ex:
+            log_debug("update_icon error: {}".format(ex))
+
     def _on_close_clicked(self, sender, e):
         try:
+            self.update_icon(False)
             self.Close()
         except Exception as ex:
             log_debug("_on_close_clicked error: {}".format(ex))
@@ -1068,6 +1088,10 @@ class RevitServerWindow(forms.WPFWindow):
                 self.http_server.stop()
         except Exception as ex:
             log_debug("_on_window_closed http stop error: {}".format(ex))
+        try:
+            self.update_icon(False)
+        except Exception as ex:
+            log_debug("_on_window_closed update_icon error: {}".format(ex))
         try:
             set_registered_window(DOMAIN_WINDOW_KEY, None)
         except Exception as ex:
@@ -1403,7 +1427,7 @@ class RevitServerWindow(forms.WPFWindow):
                     self.StatusText.Foreground = b_gray
                 self.StatusText.Text = "Server Stopped"
                 self.ActivityText.Text = "Click 'Start Server' to resume"
-                update_ribbon_button_icon(False)
+                self.update_icon(False)
             else:
                 self.start_server()
         except Exception as ex:
@@ -1443,7 +1467,7 @@ class RevitServerWindow(forms.WPFWindow):
                     self.CompactStatusText.Foreground = b_green
             self.StatusText.Text = "Ready for commands"
             self.ActivityText.Text = "Listening on 127.0.0.1:{}...".format(self.http_server.port)
-            update_ribbon_button_icon(True)
+            self.update_icon(True)
         except Exception as ex:
             log_debug("Failed to start server: {}".format(ex))
             self.StatusText.Text = "Failed to start"
@@ -1451,7 +1475,7 @@ class RevitServerWindow(forms.WPFWindow):
             if b_red:
                 self.StatusText.Foreground = b_red
             self.ActivityText.Text = str(ex)
-            update_ribbon_button_icon(False)
+            self.update_icon(False)
 
 
 def main():
@@ -1460,7 +1484,7 @@ def main():
     if win:
         try:
             # Hot-reload updated methods onto existing window instance
-            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked"]:
+            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked", "_on_window_closed", "update_icon"]:
                 if hasattr(RevitServerWindow, method_name):
                     setattr(win, method_name, getattr(RevitServerWindow, method_name).__get__(win, RevitServerWindow))
 
