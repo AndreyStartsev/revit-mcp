@@ -1074,8 +1074,38 @@ class RevitServerWindow(forms.WPFWindow):
             self.ScreenshotBtn.Click += self._on_screenshot_clicked
             if hasattr(self, "CompactScreenshotBtn"):
                 self.CompactScreenshotBtn.Click += self._on_screenshot_clicked
+
+            # Background continuous modal monitor timer (400ms) for instant detection and instant recovery
+            try:
+                from System.Windows.Threading import DispatcherTimer
+                self.modal_monitor_timer = DispatcherTimer()
+                self.modal_monitor_timer.Interval = System.TimeSpan.FromMilliseconds(400)
+                self.modal_monitor_timer.Tick += self._on_modal_monitor_tick
+                self.modal_monitor_timer.Start()
+            except Exception as m_ex:
+                log_debug("modal_monitor_timer init error: {}".format(m_ex))
         except Exception as ex:
             log_debug("_init_events error: {}".format(ex))
+
+    def _on_modal_monitor_tick(self, sender, e):
+        try:
+            hud_hwnd = 0
+            try:
+                from System.Windows.Interop import WindowInteropHelper
+                helper = WindowInteropHelper(self)
+                hud_hwnd = int(helper.Handle)
+            except Exception:
+                pass
+
+            is_blocked, title = get_revit_modal_status(hud_hwnd=hud_hwnd)
+            if is_blocked:
+                if getattr(self, "blinking_button", None) != "modal":
+                    self.start_modal_blinking(title)
+            else:
+                if getattr(self, "blinking_button", None) == "modal":
+                    self.stop_modal_blinking()
+        except Exception as ex:
+            pass
 
     def update_icon(self, is_active):
         try:
@@ -1092,6 +1122,12 @@ class RevitServerWindow(forms.WPFWindow):
             log_debug("_on_close_clicked error: {}".format(ex))
 
     def _on_window_closed(self, sender, e):
+        try:
+            if getattr(self, "modal_monitor_timer", None):
+                self.modal_monitor_timer.Stop()
+                self.modal_monitor_timer = None
+        except Exception:
+            pass
         try:
             if self.http_server:
                 self.http_server.stop()
@@ -1253,23 +1289,34 @@ class RevitServerWindow(forms.WPFWindow):
 
     def start_modal_blinking(self, modal_title="Modal Dialog"):
         try:
+            if self.blinking_button == "modal":
+                return
             self.stop_blinking()
             self.blinking_button = "modal"
             self.modal_dialog_title = modal_title or "Modal Dialog"
-            b_yellow = self._brush(241, 196, 15)
-            b_card = self._brush(65, 52, 18)
+
+            # Set crisp steady text and warning dot
+            b_text = self._brush(255, 245, 200)
+            b_dot = self._brush(241, 196, 15)
+            b_body = self._brush(115, 85, 20)
+            b_card = self._brush(75, 55, 18)
             b_border = self._brush(241, 196, 15)
-            if b_yellow:
-                self.StatusIndicator.Fill = b_yellow
-                self.StatusText.Foreground = b_yellow
+
+            if b_dot:
+                self.StatusIndicator.Fill = b_dot
                 if hasattr(self, "CompactStatusIndicator"):
-                    self.CompactStatusIndicator.Fill = b_yellow
+                    self.CompactStatusIndicator.Fill = b_dot
+            if b_text:
+                self.StatusText.Foreground = b_text
                 if hasattr(self, "CompactStatusText"):
-                    self.CompactStatusText.Foreground = b_yellow
+                    self.CompactStatusText.Foreground = b_text
+            if b_body:
+                self.MainBorder.Background = b_body
             if b_card:
                 self.StatusCardBorder.Background = b_card
             if b_border:
                 self.MainBorder.BorderBrush = b_border
+
             self.StatusText.Text = "WAITING: Modal Dialog Open"
             if hasattr(self, "CompactStatusText"):
                 self.CompactStatusText.Text = "Modal"
@@ -1295,7 +1342,6 @@ class RevitServerWindow(forms.WPFWindow):
                 else:
                     self.set_theme_idle()
                     b_green = self._brush(46, 204, 113)
-                    b_card = self._brush(18, 18, 23)
                     if b_green:
                         self.StatusIndicator.Fill = b_green
                         self.StatusText.Foreground = b_green
@@ -1303,8 +1349,6 @@ class RevitServerWindow(forms.WPFWindow):
                             self.CompactStatusIndicator.Fill = b_green
                         if hasattr(self, "CompactStatusText"):
                             self.CompactStatusText.Foreground = b_green
-                    if b_card:
-                        self.StatusCardBorder.Background = b_card
                     self.StatusText.Text = "Ready for commands"
                     if hasattr(self, "CompactStatusText"):
                         self.CompactStatusText.Text = "Ready"
@@ -1360,17 +1404,24 @@ class RevitServerWindow(forms.WPFWindow):
                 if hasattr(self, "CompactScreenshotBtn"):
                     self.CompactScreenshotBtn.Background = b
             elif self.blinking_button == "modal":
-                # High-visibility pulsating animation for modal dialog warning
-                b_alert = self._brush(241, 196, 15) if self.blinking_state else self._brush(230, 126, 34)
-                b_card = self._brush(75, 60, 20) if self.blinking_state else self._brush(42, 32, 12)
-                b_border = self._brush(241, 196, 15) if self.blinking_state else self._brush(140, 80, 20)
-                if b_alert:
-                    self.StatusIndicator.Fill = b_alert
-                    self.StatusText.Foreground = b_alert
-                    if hasattr(self, "CompactStatusIndicator"):
-                        self.CompactStatusIndicator.Fill = b_alert
-                    if hasattr(self, "CompactStatusText"):
-                        self.CompactStatusText.Foreground = b_alert
+                # Quick recovery check: if modal dialog was closed in Revit, stop immediately!
+                hud_hwnd = 0
+                try:
+                    from System.Windows.Interop import WindowInteropHelper
+                    hud_hwnd = int(WindowInteropHelper(self).Handle)
+                except Exception:
+                    pass
+                is_blocked, _ = get_revit_modal_status(hud_hwnd=hud_hwnd)
+                if not is_blocked:
+                    self.stop_modal_blinking()
+                    return
+
+                # Pulsate the BODY of the plate (MainBorder.Background) and inner card
+                b_body = self._brush(115, 85, 20) if self.blinking_state else self._brush(42, 32, 16)
+                b_card = self._brush(75, 55, 18) if self.blinking_state else self._brush(28, 22, 12)
+                b_border = self._brush(241, 196, 15) if self.blinking_state else self._brush(140, 95, 20)
+                if b_body:
+                    self.MainBorder.Background = b_body
                 if b_card:
                     self.StatusCardBorder.Background = b_card
                 if b_border:
@@ -1575,9 +1626,19 @@ def main():
     if win:
         try:
             # Hot-reload updated methods onto existing window instance
-            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked", "_on_window_closed", "update_icon", "set_theme_busy", "set_theme_idle", "notify_request_finished"]:
+            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked", "_on_window_closed", "update_icon", "set_theme_busy", "set_theme_idle", "notify_request_finished", "start_modal_blinking", "stop_modal_blinking", "_on_blink_tick", "_on_modal_monitor_tick"]:
                 if hasattr(RevitServerWindow, method_name):
                     setattr(win, method_name, getattr(RevitServerWindow, method_name).__get__(win, RevitServerWindow))
+
+            if not getattr(win, "modal_monitor_timer", None):
+                try:
+                    from System.Windows.Threading import DispatcherTimer
+                    win.modal_monitor_timer = DispatcherTimer()
+                    win.modal_monitor_timer.Interval = System.TimeSpan.FromMilliseconds(400)
+                    win.modal_monitor_timer.Tick += win._on_modal_monitor_tick
+                    win.modal_monitor_timer.Start()
+                except Exception:
+                    pass
 
             # If ExternalEvent wasn't created yet or was lost, we are inside standard Revit API execution right now in main()!
             if not getattr(win, "handler", None):
