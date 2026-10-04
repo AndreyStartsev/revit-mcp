@@ -1165,11 +1165,12 @@ class RevitServerWindow(forms.WPFWindow):
 
     def set_theme_busy(self, status_msg="Agent is executing...", activity_msg="Processing command..."):
         try:
-            b1 = self._brush(40, 42, 48)
-            b2 = self._brush(85, 90, 102)
-            b3 = self._brush(28, 30, 35)
-            b_purple = self._brush(155, 89, 182)
-            b_fg = self._brush(187, 143, 206)
+            # Noticeably lighter slate gray theme for clear busy visibility
+            b1 = self._brush(82, 86, 98)
+            b2 = self._brush(130, 140, 160)
+            b3 = self._brush(58, 62, 72)
+            b_purple = self._brush(175, 122, 220)
+            b_fg = self._brush(240, 230, 255)
             if b1: self.MainBorder.Background = b1
             if b2: self.MainBorder.BorderBrush = b2
             if b3: self.StatusCardBorder.Background = b3
@@ -1180,6 +1181,9 @@ class RevitServerWindow(forms.WPFWindow):
             self.StatusText.Text = status_msg
             if b_fg:
                 self.StatusText.Foreground = b_fg
+                if hasattr(self, "CompactStatusText"):
+                    self.CompactStatusText.Text = "Busy"
+                    self.CompactStatusText.Foreground = b_fg
             self.ActivityText.Text = activity_msg
             self.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
         except Exception as ex:
@@ -1501,7 +1505,7 @@ def main():
     if win:
         try:
             # Hot-reload updated methods onto existing window instance
-            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked", "_on_window_closed", "update_icon"]:
+            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked", "_on_window_closed", "update_icon", "set_theme_busy", "set_theme_idle", "notify_request_finished"]:
                 if hasattr(RevitServerWindow, method_name):
                     setattr(win, method_name, getattr(RevitServerWindow, method_name).__get__(win, RevitServerWindow))
 
