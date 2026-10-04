@@ -1058,7 +1058,7 @@ class RevitServerWindow(forms.WPFWindow):
 
     def _on_close_clicked(self, sender, e):
         try:
-            self.Hide()
+            self.Close()
         except Exception as ex:
             log_debug("_on_close_clicked error: {}".format(ex))
 
@@ -1453,6 +1453,11 @@ def main():
     win = get_registered_window(DOMAIN_WINDOW_KEY)
     if win:
         try:
+            # Hot-reload updated methods onto existing window instance
+            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked"]:
+                if hasattr(RevitServerWindow, method_name):
+                    setattr(win, method_name, getattr(RevitServerWindow, method_name).__get__(win, RevitServerWindow))
+
             # If ExternalEvent wasn't created yet or was lost, we are inside standard Revit API execution right now in main()!
             if not getattr(win, "handler", None):
                 win.handler = RevitExecutionHandler(win)
