@@ -1247,10 +1247,19 @@ class RevitServerWindow(forms.WPFWindow):
         try:
             self.blinking_button = "modal"
             b_yellow = self._brush(241, 196, 15)
+            b_card = self._brush(50, 45, 20)
             if b_yellow:
                 self.StatusIndicator.Fill = b_yellow
                 self.StatusText.Foreground = b_yellow
+                if hasattr(self, "CompactStatusIndicator"):
+                    self.CompactStatusIndicator.Fill = b_yellow
+                if hasattr(self, "CompactStatusText"):
+                    self.CompactStatusText.Foreground = b_yellow
+            if b_card:
+                self.StatusCardBorder.Background = b_card
             self.StatusText.Text = "WAITING: Modal Dialog Open"
+            if hasattr(self, "CompactStatusText"):
+                self.CompactStatusText.Text = "Modal"
             self.ActivityText.Text = "Revit is blocked by '{}'. Close it to resume.".format(modal_title or "dialog")
         except Exception as ex:
             log_debug("start_modal_blinking error: {}".format(ex))
@@ -1260,10 +1269,19 @@ class RevitServerWindow(forms.WPFWindow):
             if self.blinking_button == "modal":
                 self.blinking_button = None
                 b_green = self._brush(46, 204, 113)
+                b_card = self._brush(18, 18, 23)
                 if b_green:
                     self.StatusIndicator.Fill = b_green
                     self.StatusText.Foreground = b_green
+                    if hasattr(self, "CompactStatusIndicator"):
+                        self.CompactStatusIndicator.Fill = b_green
+                    if hasattr(self, "CompactStatusText"):
+                        self.CompactStatusText.Foreground = b_green
+                if b_card:
+                    self.StatusCardBorder.Background = b_card
                 self.StatusText.Text = "Ready for commands"
+                if hasattr(self, "CompactStatusText"):
+                    self.CompactStatusText.Text = "Ready"
                 self.ActivityText.Text = "Listening on 127.0.0.1:{}...".format(self.http_server.port if self.http_server else "")
         except Exception as ex:
             log_debug("stop_modal_blinking error: {}".format(ex))
