@@ -954,6 +954,13 @@ class RevitServerWindow(forms.WPFWindow):
         self.requested_categories = None
         self.requested_multiple = False
 
+        # Pre-create Revit ExternalEvent while inside standard Revit API execution context
+        try:
+            self.handler = RevitExecutionHandler(self)
+            self.ext_event = ExternalEvent.Create(self.handler)
+        except Exception as ex:
+            log_debug("Failed to create ExternalEvent in __init__: {}".format(ex))
+
         # Cache WPF / .NET types on instance while module globals are alive in __main__
         try:
             self._brush_cls = SolidColorBrush
@@ -1404,8 +1411,14 @@ class RevitServerWindow(forms.WPFWindow):
 
     def start_server(self):
         try:
-            self.handler = RevitExecutionHandler(self)
-            self.ext_event = ExternalEvent.Create(self.handler)
+            if not getattr(self, "handler", None):
+                self.handler = RevitExecutionHandler(self)
+            if not getattr(self, "ext_event", None):
+                self.ext_event = ExternalEvent.Create(self.handler)
+
+            if self.http_server and getattr(self.http_server, "running", False):
+                return
+
             self.http_server = AsyncHttpServer(BASE_PORT, self.handler, self.ext_event, self)
             self.http_server.start()
 
@@ -1440,11 +1453,20 @@ def main():
     win = get_registered_window(DOMAIN_WINDOW_KEY)
     if win:
         try:
+            # If ExternalEvent wasn't created yet or was lost, we are inside standard Revit API execution right now in main()!
+            if not getattr(win, "handler", None):
+                win.handler = RevitExecutionHandler(win)
+            if not getattr(win, "ext_event", None):
+                win.ext_event = ExternalEvent.Create(win.handler)
             if not win.IsVisible:
                 win.Show()
             win.Activate()
+            # If server is stopped, restart it safely on ribbon click
+            if not win.http_server or not getattr(win.http_server, "running", False):
+                win.start_server()
             return
-        except Exception:
+        except Exception as ex:
+            log_debug("Error activating existing window in main: {}".format(ex))
             set_registered_window(DOMAIN_WINDOW_KEY, None)
 
     xaml_path = os.path.join(os.path.dirname(__file__), "ui.xaml")
