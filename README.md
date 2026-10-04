@@ -126,11 +126,17 @@ python tests/test_connection.py
 
 ---
 
-### Step 3: Configure Your AI Agent
+### Step 3: Connect & Activate Your AI Agent
 
-#### 🤖 Google Antigravity
-Add the Revit MCP server to your Antigravity configuration or workspace MCP settings:
+#### 🤖 Google Antigravity (Primary & Fully Supported)
 
+Google Antigravity is the primary, first-class autonomous agent environment designed to work seamlessly with Revit MCP out-of-the-box.
+
+##### 1. Register the MCP Server in Antigravity
+Open or create your global Antigravity MCP configuration:
+- **Windows**: `%USERPROFILE%\.gemini\config\mcp_config.json` (or your workspace MCP configuration)
+
+Add the `revit` server entry:
 ```json
 {
   "mcpServers": {
@@ -141,32 +147,53 @@ Add the Revit MCP server to your Antigravity configuration or workspace MCP sett
   }
 }
 ```
+*(If you are running in a dedicated virtual environment or pyRevit CPython, specify the full path to `python.exe`)*.
 
-#### 🟣 Claude Desktop
-Add to `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
+##### 2. Automatic Agent Guidelines (`GEMINI.md`)
+Antigravity automatically discovers and ingests [`GEMINI.md`](GEMINI.md) from the root of this workspace. This equips the agent with:
+- **Visual HUD State Tracking**: The agent automatically invokes `revit_set_busy(busy=True)` at the very start of its reasoning to turn the floating HUD gray, and calls `revit_set_busy(busy=False)` upon completing its response.
+- **Strict Transaction Handling**: Safe wrapping in `Transaction(doc, ...)`, rollback on errors, and suppression of modal blocking dialogs via `IFailuresPreprocessor`.
+- **Multimodal Interaction**: Native capability to trigger interactive element selection (`revit_request_user_selection`) and visual markup requests (`revit_request_user_snip`).
+- **Coordinate & Level Normalization**: Relative elevation anchoring ($Z_{\text{rel}} = Z_{\text{world}} - Z_{\text{host\_level}}$) and linked model transform handling.
+- **Spatial Integrity**: Strict protection against unauthorized element movement or rotation.
 
-```json
-{
-  "mcpServers": {
-    "revit": {
-      "command": "python",
-      "args": ["-m", "revit_mcp"]
-    }
-  }
-}
-```
+##### 3. Activate & Verify in Antigravity Chat
+1. Launch Autodesk Revit and open your project.
+2. Click the **Revit MCP** button on the ribbon tab to launch the server and floating HUD (displays `Ready` on `127.0.0.1:40001`).
+3. In Antigravity chat, send a verification prompt:
+   > *"Check the active Revit model, report connection status, and list available views."*
+4. You will see the floating HUD turn **Gray** while Antigravity reasons and executes tools, and return to **Dark/Ready** when the response is delivered.
 
-#### 🟦 Cursor (.cursor/mcp.json)
-```json
-{
-  "mcpServers": {
-    "revit": {
-      "command": "python",
-      "args": ["-m", "revit_mcp"]
-    }
-  }
-}
-```
+---
+
+#### 💡 Advice for Other Agentic Systems (Claude Desktop, Cursor, Cline, Windsurf)
+
+While this bridge is optimized natively for Google Antigravity, it complies with the open Model Context Protocol standard and can be connected to other MCP clients:
+
+1. **Client Configuration**:
+   - **Claude Desktop** (`%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+     ```json
+     {
+       "mcpServers": {
+         "revit": {
+           "command": "python",
+           "args": ["-m", "revit_mcp"]
+         }
+       }
+     }
+     ```
+   - **Cursor** (`.cursor/mcp.json`) / **Cline** / **Windsurf**:
+     Add the same `mcpServers` definition into your client's MCP configuration settings.
+
+2. **System Prompt / Rules Porting**:
+   - Other clients do not automatically read `GEMINI.md`. To achieve the same reliability:
+     - **Cursor**: Copy the rules from [`GEMINI.md`](GEMINI.md) into your `.cursorrules` or `.cursor/rules/revit.mdc`.
+     - **Claude Desktop**: Append the rules into Project Custom Instructions or your initial prompt.
+     - **Cline / Windsurf**: Add the rules into your `.clinerules` or workspace instructions.
+   - **Critical Rule to Include**: Instruct the agent to always wrap Revit API modifications in `Transaction(doc, ...)` and attach an `IFailuresPreprocessor` so modal dialogs don't freeze the client.
+
+3. **Multimodal Capabilities**:
+   - For visual tools (`revit_capture_screenshot` and `revit_request_user_snip`), ensure your agent is configured with a vision-capable multimodal model (e.g., Claude 3.5 Sonnet, GPT-4o, or Gemini 1.5 Pro).
 
 ---
 
