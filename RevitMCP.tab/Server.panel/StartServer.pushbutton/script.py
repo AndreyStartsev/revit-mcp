@@ -908,6 +908,7 @@ class AsyncHttpServer(object):
     def _write_response(self, response, data_dict, status_code=200):
         try:
             response.StatusCode = status_code
+            response.ContentType = "application/json; charset=utf-8"
             try:
                 json_str = json.dumps(data_dict, ensure_ascii=False, default=str)
             except Exception as jerr:
@@ -917,7 +918,7 @@ class AsyncHttpServer(object):
             response.ContentLength64 = buffer.Length
             output = response.OutputStream
             output.Write(buffer, 0, buffer.Length)
-            output.Close()
+            output.Flush()
         except Exception as ex:
             log_debug("_write_response error: {}".format(ex))
         finally:
