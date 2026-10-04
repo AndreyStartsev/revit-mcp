@@ -859,6 +859,7 @@ class AsyncHttpServer(object):
                 msg = req_json.get("message", None)
                 act = req_json.get("activity", None)
                 if self.window:
+                    self.window.is_agent_busy = busy
                     def update_busy_ui():
                         try:
                             if busy:
@@ -870,6 +871,12 @@ class AsyncHttpServer(object):
                                 if b_green:
                                     self.window.StatusText.Foreground = b_green
                                     self.window.StatusIndicator.Fill = b_green
+                                if hasattr(self.window, "CompactStatusIndicator"):
+                                    self.window.CompactStatusIndicator.Fill = b_green
+                                if hasattr(self.window, "CompactStatusText"):
+                                    self.window.CompactStatusText.Text = "Ready"
+                                    if b_green:
+                                        self.window.CompactStatusText.Foreground = b_green
                                 if act:
                                     self.window.ActivityText.Text = act
                                 self.window.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
@@ -952,6 +959,7 @@ class RevitServerWindow(forms.WPFWindow):
         self.request_count = 0
         self.is_pinned = False
         self.is_compact = False
+        self.is_agent_busy = False
 
         self.blinking_timer = None
         self.blinking_button = None
@@ -1182,7 +1190,10 @@ class RevitServerWindow(forms.WPFWindow):
             try:
                 self.request_count += 1
                 self.RequestCountText.Text = "Requests: {}".format(self.request_count)
-                self.set_theme_busy("Active: {} {}".format(method, path), "Processing request on port {}...".format(self.http_server.port if self.http_server else ""))
+                if not getattr(self, "is_agent_busy", False):
+                    self.set_theme_busy("Active: {} {}".format(method, path), "Processing request on port {}...".format(self.http_server.port if self.http_server else ""))
+                else:
+                    self.ActivityText.Text = "Executing {} {}...".format(method, path)
             except Exception as ex:
                 log_debug("notify_request_started update error: {}".format(ex))
         self._dispatch(update)
@@ -1190,6 +1201,13 @@ class RevitServerWindow(forms.WPFWindow):
     def notify_request_finished(self, status_code, duration_sec, path):
         def update():
             try:
+                ms = int(duration_sec * 1000)
+                # If agent explicitly set busy state, preserve gray theme and active status!
+                if getattr(self, "is_agent_busy", False):
+                    self.ActivityText.Text = "{} finished ({}ms)".format(path, ms)
+                    self.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
+                    return
+
                 self.set_theme_idle()
                 b_green = self._brush(46, 204, 113)
                 if b_green:
@@ -1198,7 +1216,6 @@ class RevitServerWindow(forms.WPFWindow):
                         self.CompactStatusIndicator.Fill = b_green
                     self.StatusText.Foreground = b_green
                 self.StatusText.Text = "Ready for commands"
-                ms = int(duration_sec * 1000)
                 self.ActivityText.Text = "{} finished ({}ms, HTTP {})".format(path, ms, status_code)
                 self.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
             except Exception as ex:
