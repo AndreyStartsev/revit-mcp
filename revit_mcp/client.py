@@ -11,7 +11,7 @@ import urllib.request
 import urllib.error
 from typing import Optional, Dict, Any, List
 
-DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "revit_mcp")
+DEFAULT_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".revit_mcp")
 
 
 def load_auth_token_for_port(port: int) -> Optional[str]:
@@ -23,7 +23,7 @@ def load_auth_token_for_port(port: int) -> Optional[str]:
     candidate_dirs = [
         os.environ.get("REVIT_MCP_CACHE_DIR"),
         DEFAULT_CACHE_DIR,
-        os.path.join(os.path.expanduser("~"), ".revit_mcp")
+        os.path.join(tempfile.gettempdir(), "revit_mcp")
     ]
 
     for c_dir in candidate_dirs:
