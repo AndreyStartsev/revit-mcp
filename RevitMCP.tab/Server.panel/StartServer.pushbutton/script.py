@@ -402,23 +402,27 @@ class RevitExecutionHandler(IExternalEventHandler):
 
             try:
                 log_debug("Executing remote task {} in Revit UI thread...".format(task.task_id))
-                doc = uiapp.ActiveUIDocument.Document if uiapp.ActiveUIDocument else None
-                uidoc = uiapp.ActiveUIDocument
-                app = uiapp.Application
+                if callable(task.code):
+                    call_res = task.code(uiapp)
+                    result_data = call_res if isinstance(call_res, dict) else {"result": call_res}
+                else:
+                    doc = uiapp.ActiveUIDocument.Document if uiapp.ActiveUIDocument else None
+                    uidoc = uiapp.ActiveUIDocument
+                    app = uiapp.Application
 
-                response_data = {}
-                scope = {
-                    'uiapp': uiapp,
-                    'app': app,
-                    'uidoc': uidoc,
-                    'doc': doc,
-                    'response_data': response_data,
-                    '__builtins__': __builtins__
-                }
+                    response_data = {}
+                    scope = {
+                        'uiapp': uiapp,
+                        'app': app,
+                        'uidoc': uidoc,
+                        'doc': doc,
+                        'response_data': response_data,
+                        '__builtins__': __builtins__
+                    }
 
-                exec(task.code, scope)
+                    exec(task.code, scope)
+                    result_data = scope.get('response_data', response_data)
                 
-                result_data = scope.get('response_data', response_data)
                 task.result = {
                     "success": True,
                     "data": result_data,
@@ -426,7 +430,7 @@ class RevitExecutionHandler(IExternalEventHandler):
                     "task_id": task.task_id
                 }
                 log_debug("Task {} finished successfully.".format(task.task_id))
-            except Exception as ex:
+            except (Exception, System.Exception) as ex:
                 tb = traceback.format_exc()
                 task.result = {
                     "success": False,
@@ -983,11 +987,21 @@ class RevitServerWindow(forms.WPFWindow):
             self._color_cls = Color
             self._visibility_cls = Visibility
             self._action_cls = System.Action
-        except Exception as ex:
+            try:
+                from Autodesk.Revit.UI.Selection import ObjectType as _ObjType, ISelectionFilter as _ISelFilt
+                self._object_type_cls = _ObjType
+                self._selection_filter_cls = _ISelFilt
+            except Exception:
+                pass
+            self._category_selection_filter_cls = CategorySelectionFilter
+            self._get_revit_modal_status = get_revit_modal_status
+        except (Exception, System.Exception) as ex:
             log_debug("Failed to cache types on window: {}".format(ex))
 
         try:
             self.btn_dir = os.path.dirname(__file__)
+            if self.btn_dir and self.btn_dir not in sys.path:
+                sys.path.append(self.btn_dir)
         except Exception:
             self.btn_dir = None
 
@@ -1026,8 +1040,10 @@ class RevitServerWindow(forms.WPFWindow):
         try:
             action_cls = getattr(self, "_action_cls", None) or System.Action
             self.Dispatcher.BeginInvoke(action_cls(callback))
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_dispatch error: {}".format(ex))
+        except:
+            pass
 
     def _init_controls(self):
         try:
@@ -1094,70 +1110,87 @@ class RevitServerWindow(forms.WPFWindow):
                 from System.Windows.Interop import WindowInteropHelper
                 helper = WindowInteropHelper(self)
                 hud_hwnd = int(helper.Handle)
-            except Exception:
+            except (Exception, System.Exception):
+                pass
+            except:
                 pass
 
-            is_blocked, title = get_revit_modal_status(hud_hwnd=hud_hwnd)
+            fn_modal = getattr(self, "_get_revit_modal_status", None) or get_revit_modal_status
+            is_blocked, title = fn_modal(hud_hwnd=hud_hwnd)
             if is_blocked:
                 if getattr(self, "blinking_button", None) != "modal":
                     self.start_modal_blinking(title)
             else:
                 if getattr(self, "blinking_button", None) == "modal":
                     self.stop_modal_blinking()
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
+            pass
+        except:
             pass
 
     def update_icon(self, is_active):
         try:
             b_dir = getattr(self, "btn_dir", None)
             update_ribbon_button_icon(is_active, b_dir)
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("update_icon error: {}".format(ex))
+        except:
+            pass
 
     def _on_close_clicked(self, sender, e):
         try:
             self.update_icon(False)
             self.Close()
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_close_clicked error: {}".format(ex))
+        except:
+            pass
 
     def _on_window_closed(self, sender, e):
         try:
             if getattr(self, "modal_monitor_timer", None):
                 self.modal_monitor_timer.Stop()
                 self.modal_monitor_timer = None
-        except Exception:
+        except:
             pass
         try:
             if self.http_server:
                 self.http_server.stop()
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_window_closed http stop error: {}".format(ex))
+        except:
+            pass
         try:
             self.update_icon(False)
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_window_closed update_icon error: {}".format(ex))
+        except:
+            pass
         try:
             set_registered_window(DOMAIN_WINDOW_KEY, None)
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_window_closed unregister error: {}".format(ex))
+        except:
+            pass
 
     def _position_window(self):
         try:
             screen = Screen.PrimaryScreen.WorkingArea
             self.Left = screen.Right - self.Width - 24
             self.Top = screen.Bottom - self.Height - 48
-        except Exception:
+        except:
             try:
                 self.WindowStartupLocation = WindowStartupLocation.CenterScreen
-            except Exception:
+            except:
                 pass
 
     def _on_drag_window(self, sender, e):
         try:
             self.DragMove()
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_drag_window error: {}".format(ex))
+        except:
+            pass
 
     def _on_pin_clicked(self, sender, e):
         try:
@@ -1168,8 +1201,10 @@ class RevitServerWindow(forms.WPFWindow):
                 self.PinBtn.Foreground = color
                 if hasattr(self, "CompactPinBtn"):
                     self.CompactPinBtn.Foreground = color
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_pin_clicked error: {}".format(ex))
+        except:
+            pass
 
     def _on_min_clicked(self, sender, e):
         try:
@@ -1186,8 +1221,10 @@ class RevitServerWindow(forms.WPFWindow):
                 self.ExpandedView.Visibility = vis_exp
                 self.Width = 440
                 self.Height = 150
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_min_clicked error: {}".format(ex))
+        except:
+            pass
 
     def set_theme_idle(self):
         try:
@@ -1197,8 +1234,10 @@ class RevitServerWindow(forms.WPFWindow):
             if b1: self.MainBorder.Background = b1
             if b2: self.MainBorder.BorderBrush = b2
             if b3: self.StatusCardBorder.Background = b3
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("set_theme_idle error: {}".format(ex))
+        except:
+            pass
 
     def set_theme_busy(self, status_msg="Agent is executing...", activity_msg="Processing command..."):
         try:
@@ -1225,9 +1264,14 @@ class RevitServerWindow(forms.WPFWindow):
                     self.CompactStatusText.Text = "Busy"
                     self.CompactStatusText.Foreground = b_fg
             self.ActivityText.Text = activity_msg
-            self.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
-        except Exception as ex:
+            try:
+                self.TimeText.Text = System.DateTime.Now.ToString("HH:mm:ss")
+            except:
+                pass
+        except (Exception, System.Exception) as ex:
             log_debug("set_theme_busy error: {}".format(ex))
+        except:
+            pass
 
     def notify_request_started(self, method, path):
         def update():
@@ -1240,8 +1284,10 @@ class RevitServerWindow(forms.WPFWindow):
                     self.set_theme_busy("Active: {} {}".format(method, path), "Processing request on port {}...".format(self.http_server.port if self.http_server else ""))
                 else:
                     self.ActivityText.Text = "Executing {} {}...".format(method, path)
-            except Exception as ex:
+            except (Exception, System.Exception) as ex:
                 log_debug("notify_request_started update error: {}".format(ex))
+            except:
+                pass
         self._dispatch(update)
 
     def notify_request_finished(self, status_code, duration_sec, path):
@@ -1253,7 +1299,10 @@ class RevitServerWindow(forms.WPFWindow):
                 # If agent explicitly set busy state, preserve gray theme and active status!
                 if getattr(self, "is_agent_busy", False):
                     self.ActivityText.Text = "{} finished ({}ms)".format(path, ms)
-                    self.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
+                    try:
+                        self.TimeText.Text = System.DateTime.Now.ToString("HH:mm:ss")
+                    except:
+                        pass
                     return
 
                 self.set_theme_idle()
@@ -1265,9 +1314,14 @@ class RevitServerWindow(forms.WPFWindow):
                     self.StatusText.Foreground = b_green
                 self.StatusText.Text = "Ready for commands"
                 self.ActivityText.Text = "{} finished ({}ms, HTTP {})".format(path, ms, status_code)
-                self.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
-            except Exception as ex:
+                try:
+                    self.TimeText.Text = System.DateTime.Now.ToString("HH:mm:ss")
+                except:
+                    pass
+            except (Exception, System.Exception) as ex:
                 log_debug("notify_request_finished update error: {}".format(ex))
+            except:
+                pass
         self._dispatch(update)
 
     def notify_request_error(self, err_msg):
@@ -1282,9 +1336,14 @@ class RevitServerWindow(forms.WPFWindow):
                     self.StatusText.Foreground = b_red
                 self.StatusText.Text = "Error"
                 self.ActivityText.Text = str(err_msg)
-                self.TimeText.Text = datetime.datetime.now().strftime("%H:%M:%S")
-            except Exception as ex:
+                try:
+                    self.TimeText.Text = System.DateTime.Now.ToString("HH:mm:ss")
+                except:
+                    pass
+            except (Exception, System.Exception) as ex:
                 log_debug("notify_request_error update error: {}".format(ex))
+            except:
+                pass
         self._dispatch(update)
 
     def start_modal_blinking(self, modal_title="Modal Dialog"):
@@ -1328,10 +1387,14 @@ class RevitServerWindow(forms.WPFWindow):
                 self.blinking_timer.Interval = System.TimeSpan.FromMilliseconds(450)
                 self.blinking_timer.Tick += self._on_blink_tick
                 self.blinking_timer.Start()
-            except Exception as ex:
+            except (Exception, System.Exception) as ex:
                 log_debug("DispatcherTimer modal error: {}".format(ex))
-        except Exception as ex:
+            except:
+                pass
+        except (Exception, System.Exception) as ex:
             log_debug("start_modal_blinking error: {}".format(ex))
+        except:
+            pass
 
     def stop_modal_blinking(self):
         try:
@@ -1353,8 +1416,10 @@ class RevitServerWindow(forms.WPFWindow):
                     if hasattr(self, "CompactStatusText"):
                         self.CompactStatusText.Text = "Ready"
                     self.ActivityText.Text = "Listening on 127.0.0.1:{}...".format(self.http_server.port if self.http_server else "")
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("stop_modal_blinking error: {}".format(ex))
+        except:
+            pass
 
     def start_blinking(self, target, prompt_msg, categories=None, multiple=False, done_event=None):
         try:
@@ -1383,10 +1448,14 @@ class RevitServerWindow(forms.WPFWindow):
                 self.blinking_timer.Interval = System.TimeSpan.FromMilliseconds(450)
                 self.blinking_timer.Tick += self._on_blink_tick
                 self.blinking_timer.Start()
-            except Exception as ex:
+            except (Exception, System.Exception) as ex:
                 log_debug("DispatcherTimer start error: {}".format(ex))
-        except Exception as top_ex:
+            except:
+                pass
+        except (Exception, System.Exception) as top_ex:
             log_debug("start_blinking error: {}".format(top_ex))
+        except:
+            pass
 
     def _on_blink_tick(self, sender, e):
         try:
@@ -1409,9 +1478,12 @@ class RevitServerWindow(forms.WPFWindow):
                 try:
                     from System.Windows.Interop import WindowInteropHelper
                     hud_hwnd = int(WindowInteropHelper(self).Handle)
-                except Exception:
+                except (Exception, System.Exception):
                     pass
-                is_blocked, _ = get_revit_modal_status(hud_hwnd=hud_hwnd)
+                except:
+                    pass
+                fn_modal = getattr(self, "_get_revit_modal_status", None) or get_revit_modal_status
+                is_blocked, _ = fn_modal(hud_hwnd=hud_hwnd)
                 if not is_blocked:
                     self.stop_modal_blinking()
                     return
@@ -1426,8 +1498,10 @@ class RevitServerWindow(forms.WPFWindow):
                     self.StatusCardBorder.Background = b_card
                 if b_border:
                     self.MainBorder.BorderBrush = b_border
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_blink_tick error: {}".format(ex))
+        except:
+            pass
 
     def stop_blinking(self):
         try:
@@ -1445,79 +1519,166 @@ class RevitServerWindow(forms.WPFWindow):
                 if hasattr(self, "CompactScreenshotBtn"):
                     self.CompactScreenshotBtn.Background = b_blue
             self.blinking_button = None
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("stop_blinking error: {}".format(ex))
+        except:
+            pass
 
     def _on_select_clicked(self, sender, e):
         try:
-            is_requested = (self.blinking_button == "select")
-            cats = self.requested_categories
-            multiple = self.requested_multiple if is_requested else False
+            is_requested = (getattr(self, "blinking_button", None) == "select")
+            cats = getattr(self, "requested_categories", None)
+            multiple = getattr(self, "requested_multiple", False) if is_requested else False
 
             self.stop_blinking()
-            self.StatusText.Text = "Selecting elements..."
+            self.StatusText.Text = "Selecting in Revit..."
             b_purple = self._brush(155, 89, 182)
             if b_purple:
                 self.StatusText.Foreground = b_purple
 
-            try:
-                from pyrevit import revit
-                doc = revit.doc
-                uidoc = revit.uidoc
-                if not doc or not uidoc:
-                    self.StatusText.Text = "No active document"
-                    return
-
-                filt = CategorySelectionFilter(doc, cats)
+            def do_pick(uiapp):
                 elements_data = []
+                canceled = False
+                err_msg = None
+                try:
+                    uidoc = getattr(uiapp, "ActiveUIDocument", None)
+                    doc = uidoc.Document if uidoc else None
+                    if not doc or not uidoc:
+                        def update_nodoc():
+                            try:
+                                self.StatusText.Text = "No active document"
+                                b_gray = self._brush(149, 165, 166)
+                                if b_gray: self.StatusText.Foreground = b_gray
+                            except:
+                                pass
+                        self._dispatch(update_nodoc)
+                        return {"count": 0, "elements": [], "error": "No active document"}
 
-                if multiple:
-                    refs = uidoc.Selection.PickObjects(ObjectType.Element, filt, "Select elements and click Finish")
-                    for r in refs:
-                        el = doc.GetElement(r)
-                        if el:
-                            elements_data.append({
-                                "id": el.Id.IntegerValue if hasattr(el.Id, "IntegerValue") else el.Id.Value,
-                                "name": getattr(el, "Name", ""),
-                                "category": el.Category.Name if el.Category else ""
-                            })
+                    try:
+                        from Autodesk.Revit.UI.Selection import ObjectType as _ObjType
+                        obj_type = _ObjType
+                    except (Exception, System.Exception):
+                        obj_type = getattr(self, "_object_type_cls", None) or ObjectType
+
+                    filt_cls = getattr(self, "_category_selection_filter_cls", None) or CategorySelectionFilter
+                    try:
+                        filt = filt_cls(doc, cats)
+                    except (Exception, System.Exception):
+                        filt = None
+
+                    if multiple:
+                        prompt_text = "Select elements and click Finish"
+                        refs = uidoc.Selection.PickObjects(obj_type.Element, filt, prompt_text) if filt else uidoc.Selection.PickObjects(obj_type.Element, prompt_text)
+                        if refs:
+                            for r in refs:
+                                el = doc.GetElement(r)
+                                if el:
+                                    el_id = getattr(el.Id, "IntegerValue", None)
+                                    if el_id is None:
+                                        el_id = getattr(el.Id, "Value", 0)
+                                    elements_data.append({
+                                        "id": el_id,
+                                        "name": getattr(el, "Name", ""),
+                                        "category": el.Category.Name if el.Category else ""
+                                    })
+                    else:
+                        prompt_text = "Select 1 element in model"
+                        ref = uidoc.Selection.PickObject(obj_type.Element, filt, prompt_text) if filt else uidoc.Selection.PickObject(obj_type.Element, prompt_text)
+                        if ref:
+                            el = doc.GetElement(ref)
+                            if el:
+                                el_id = getattr(el.Id, "IntegerValue", None)
+                                if el_id is None:
+                                    el_id = getattr(el.Id, "Value", 0)
+                                elements_data.append({
+                                    "id": el_id,
+                                    "name": getattr(el, "Name", ""),
+                                    "category": el.Category.Name if el.Category else ""
+                                })
+
+                except (Exception, System.Exception) as p_ex:
+                    ex_str = str(p_ex)
+                    ex_type = str(type(p_ex))
+                    if "OperationCanceledException" in ex_type or "cancel" in ex_str.lower():
+                        canceled = True
+                        log_debug("Selection was canceled by user.")
+                    else:
+                        err_msg = ex_str
+                        log_debug("Selection exception: {}".format(ex_str))
+                except:
+                    canceled = True
+                    log_debug("Native cancel or exception during selection.")
+
+                now_str = ""
+                try:
+                    now_str = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                except:
+                    pass
+
+                if canceled:
+                    res = {"count": 0, "elements": [], "canceled": True, "timestamp": now_str}
+                    def update_cancel():
+                        try:
+                            self.StatusText.Text = "Selection canceled"
+                            b_gray = self._brush(149, 165, 166)
+                            if b_gray: self.StatusText.Foreground = b_gray
+                            if hasattr(self, "CompactStatusText"):
+                                self.CompactStatusText.Text = "Canceled"
+                                if b_gray: self.CompactStatusText.Foreground = b_gray
+                        except:
+                            pass
+                    self._dispatch(update_cancel)
+                elif err_msg:
+                    res = {"count": 0, "elements": [], "error": err_msg, "timestamp": now_str}
+                    def update_err():
+                        try:
+                            self.StatusText.Text = "Selection error"
+                            b_red = self._brush(231, 76, 60)
+                            if b_red: self.StatusText.Foreground = b_red
+                            if hasattr(self, "CompactStatusText"):
+                                self.CompactStatusText.Text = "Error"
+                                if b_red: self.CompactStatusText.Foreground = b_red
+                        except:
+                            pass
+                    self._dispatch(update_err)
                 else:
-                    ref = uidoc.Selection.PickObject(ObjectType.Element, filt, "Select 1 element in model")
-                    if ref:
-                        el = doc.GetElement(ref)
-                        if el:
-                            elements_data.append({
-                                "id": el.Id.IntegerValue if hasattr(el.Id, "IntegerValue") else el.Id.Value,
-                                "name": getattr(el, "Name", ""),
-                                "category": el.Category.Name if el.Category else ""
-                            })
+                    res = {
+                        "count": len(elements_data),
+                        "elements": elements_data,
+                        "timestamp": now_str
+                    }
+                    def update_ok():
+                        try:
+                            self.StatusText.Text = "Selected {} elements".format(len(elements_data))
+                            b_green = self._brush(46, 204, 113)
+                            if b_green: self.StatusText.Foreground = b_green
+                            if hasattr(self, "CompactStatusText"):
+                                self.CompactStatusText.Text = "Selected {}".format(len(elements_data))
+                                if b_green: self.CompactStatusText.Foreground = b_green
+                        except:
+                            pass
+                    self._dispatch(update_ok)
 
-                res = {
-                    "count": len(elements_data),
-                    "elements": elements_data,
-                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
                 self.active_request_result = res
-                self.StatusText.Text = "Selected {} elements".format(len(elements_data))
-                b_green = self._brush(46, 204, 113)
-                if b_green:
-                    self.StatusText.Foreground = b_green
-
-            except Exception as ex:
-                log_debug("Selection exception or cancel: {}".format(ex))
-                self.StatusText.Text = "Selection canceled"
-                b_gray = self._brush(149, 165, 166)
-                if b_gray:
-                    self.StatusText.Foreground = b_gray
-                self.active_request_result = {"count": 0, "elements": [], "canceled": True}
-            finally:
-                if self.active_request_event:
+                if getattr(self, "active_request_event", None):
                     try:
                         self.active_request_event.Set()
                     except:
                         pass
-        except Exception as top_ex:
+                return res
+
+            handler = getattr(self, "handler", None)
+            ext_event = getattr(self, "ext_event", None)
+            if handler and ext_event:
+                handler.enqueue(do_pick)
+                ext_event.Raise()
+            else:
+                log_debug("_on_select_clicked: No ExternalEvent or handler available")
+                self.StatusText.Text = "Handler unavailable"
+        except (Exception, System.Exception) as top_ex:
             log_debug("_on_select_clicked fatal error: {}".format(top_ex))
+        except:
+            log_debug("_on_select_clicked unhandled native error")
 
     def _on_screenshot_clicked(self, sender, e):
         try:
@@ -1537,22 +1698,28 @@ class RevitServerWindow(forms.WPFWindow):
                                 self.active_request_event.Set()
                             except:
                                 pass
-                    except Exception as snip_ex:
+                    except (Exception, System.Exception) as snip_ex:
                         log_debug("on_snip_saved callback error: {}".format(snip_ex))
+                    except:
+                        pass
 
                 snipper.launch_snipper(on_snip_saved)
-            except Exception as ex:
+            except (Exception, System.Exception) as ex:
                 log_debug("Screenshot clicked error: {}".format(ex))
                 self.StatusText.Text = "Snip error"
                 b_red = self._brush(231, 76, 60)
                 if b_red:
                     self.StatusText.Foreground = b_red
-        except Exception as top_ex:
+            except:
+                pass
+        except (Exception, System.Exception) as top_ex:
             log_debug("_on_screenshot_clicked top error: {}".format(top_ex))
+        except:
+            pass
 
     def _on_toggle_clicked(self, sender, e):
         try:
-            if self.http_server and self.http_server.running:
+            if self.http_server and getattr(self.http_server, "running", False):
                 self.http_server.stop()
                 self.http_server = None
                 self.ToggleBtn.Content = "Start Server"
@@ -1572,8 +1739,10 @@ class RevitServerWindow(forms.WPFWindow):
                 self.update_icon(False)
             else:
                 self.start_server()
-        except Exception as ex:
+        except (Exception, System.Exception) as ex:
             log_debug("_on_toggle_clicked error: {}".format(ex))
+        except:
+            pass
 
     def start_server(self):
         try:
