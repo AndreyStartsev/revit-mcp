@@ -9,7 +9,6 @@ import sys
 import json
 import time
 import socket
-import tempfile
 import urllib.request
 import urllib.error
 import traceback
@@ -17,15 +16,64 @@ from typing import Optional, Dict, Any, List
 
 from mcp.server.mcpserver import MCPServer
 from revit_mcp.client import load_auth_token_for_port
+from revit_mcp.paths import (
+    CACHE_DIR,
+    INSTANCES_DIR,
+    SCREENSHOTS_DIR,
+    SESSION_BINDING_FILE,
+    SERVER_LOG_FILE,
+    LATEST_SCREENSHOT_PNG,
+    LATEST_SCREENSHOT_JSON,
+    LATEST_AGENT_SCREENSHOT_PNG,
+    LATEST_AGENT_SCREENSHOT_JSON,
+    LATEST_USER_SNIP_PNG,
+    LATEST_USER_SNIP_JSON,
+    LATEST_SELECTION_JSON,
+    ensure_directories,
+    is_pid_alive,
+)
 
 CANDIDATE_PORTS = [40001, 40002, 40003, 40004, 40005, 40006, 40007, 40008, 40009, 40010]
 
-DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "revit_mcp")
-SAVE_DIR = os.environ.get("REVIT_MCP_CACHE_DIR", DEFAULT_CACHE_DIR)
-SESSION_BINDING_FILE = os.path.join(SAVE_DIR, "session_binding.json")
-
 _BOUND_PORT: Optional[int] = None
 _BOUND_DOC: Optional[str] = None
+_PORT_DIAGNOSTICS: Dict[int, Dict[str, Any]] = {}
+_RECONCILED_STALE_INSTANCES: List[Dict[str, Any]] = []
+
+# Ensure cache directories exist on module import
+ensure_directories()
+
+
+def reconcile_instances() -> List[Dict[str, Any]]:
+    """Cleans up stale instance_<port>.json files whose recorded PID is no longer running."""
+    cleaned = []
+    if not os.path.exists(INSTANCES_DIR):
+        return cleaned
+
+    for fname in os.listdir(INSTANCES_DIR):
+        if fname.startswith("instance_") and fname.endswith(".json"):
+            fpath = os.path.join(INSTANCES_DIR, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                pid = data.get("pid")
+                if pid and not is_pid_alive(pid):
+                    try:
+                        os.remove(fpath)
+                    except Exception:
+                        pass
+                    stale_info = {
+                        "port": data.get("port"),
+                        "dead_pid": pid,
+                        "doc_title": data.get("doc_title"),
+                        "cleaned_file": fname,
+                        "reason": f"Process PID {pid} is no longer running (terminated or crashed without unregistering)"
+                    }
+                    cleaned.append(stale_info)
+                    _RECONCILED_STALE_INSTANCES.append(stale_info)
+            except Exception:
+                pass
+    return cleaned
 
 
 def _get_request_headers(port: int) -> Dict[str, str]:
@@ -39,7 +87,7 @@ def _get_request_headers(port: int) -> Dict[str, str]:
 
 server = MCPServer(
     name="revit-mcp",
-    version="1.0.0",
+    version="2.0.0",
     instructions="Provides direct tools to query, inspect, automate, and control Autodesk Revit models via pyRevit MCP with deterministic instance binding."
 )
 
@@ -50,7 +98,7 @@ def _load_binding():
         return
     if os.path.exists(SESSION_BINDING_FILE):
         try:
-            with open(SESSION_BINDING_FILE, "r") as f:
+            with open(SESSION_BINDING_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 _BOUND_PORT = data.get("bound_port")
                 _BOUND_DOC = data.get("bound_doc")
@@ -63,9 +111,8 @@ def _save_binding(port: Optional[int], doc_title: Optional[str] = None):
     _BOUND_PORT = port
     _BOUND_DOC = doc_title
     try:
-        if not os.path.exists(SAVE_DIR):
-            os.makedirs(SAVE_DIR)
-        with open(SESSION_BINDING_FILE, "w") as f:
+        ensure_directories()
+        with open(SESSION_BINDING_FILE, "w", encoding="utf-8") as f:
             json.dump({"bound_port": port, "bound_doc": doc_title, "updated_at": time.time()}, f, indent=2)
     except Exception:
         pass
@@ -74,21 +121,27 @@ def _save_binding(port: Optional[int], doc_title: Optional[str] = None):
 def _get_all_revit_instances() -> List[Dict[str, Any]]:
     """Scans candidate ports and returns a list of status dictionaries for all active Revit instances."""
     _load_binding()
+    reconcile_instances()
     instances = []
 
     # Fast TCP pre-check
     open_ports = []
     for port in CANDIDATE_PORTS:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.04)
+        s.settimeout(0.05)
         if s.connect_ex(('127.0.0.1', port)) == 0:
             open_ports.append(port)
+            _PORT_DIAGNOSTICS[port] = {"tcp": "open"}
+        else:
+            _PORT_DIAGNOSTICS[port] = {"tcp": "closed"}
         s.close()
 
     for port in open_ports:
+        token = load_auth_token_for_port(port)
+        _PORT_DIAGNOSTICS[port]["auth_token_loaded"] = bool(token)
         try:
             req = urllib.request.Request(f"http://127.0.0.1:{port}/api/status", headers=_get_request_headers(port))
-            with urllib.request.urlopen(req, timeout=0.6) as resp:
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
                 if resp.status == 200:
                     body = resp.read().decode("utf-8")
                     try:
@@ -96,10 +149,24 @@ def _get_all_revit_instances() -> List[Dict[str, Any]]:
                         data["port"] = port
                         data["is_bound"] = (port == _BOUND_PORT)
                         instances.append(data)
+                        _PORT_DIAGNOSTICS[port]["status"] = "running"
+                        _PORT_DIAGNOSTICS[port]["doc_title"] = data.get("doc_title")
+                        _PORT_DIAGNOSTICS[port]["pid"] = data.get("pid")
                     except Exception:
                         instances.append({"status": "running", "port": port, "is_bound": (port == _BOUND_PORT)})
-        except Exception:
-            pass
+                        _PORT_DIAGNOSTICS[port]["status"] = "running"
+        except urllib.error.HTTPError as he:
+            _PORT_DIAGNOSTICS[port]["http_status"] = he.code
+            if he.code == 401:
+                _PORT_DIAGNOSTICS[port]["error"] = "401 Unauthorized: token mismatch or token missing in ~/.revit_mcp/instances/"
+            else:
+                _PORT_DIAGNOSTICS[port]["error"] = f"HTTP {he.code}: {he.reason}"
+        except urllib.error.URLError as ue:
+            _PORT_DIAGNOSTICS[port]["error"] = f"URLError: {ue.reason}"
+        except socket.timeout:
+            _PORT_DIAGNOSTICS[port]["error"] = "Request timed out"
+        except Exception as ex:
+            _PORT_DIAGNOSTICS[port]["error"] = str(ex)
 
     return instances
 
@@ -114,8 +181,8 @@ def _find_active_revit_port(target_port: Optional[int] = None, target_doc: Optio
                     data = json.loads(resp.read().decode("utf-8"))
                     _save_binding(target_port, data.get("doc_title"))
                     return target_port
-        except Exception:
-            pass
+        except Exception as ex:
+            _PORT_DIAGNOSTICS[target_port] = {"target_port": target_port, "error": str(ex)}
         return None
 
     instances = _get_all_revit_instances()
@@ -145,23 +212,47 @@ def _find_active_revit_port(target_port: Optional[int] = None, target_doc: Optio
     return chosen_port
 
 
-def _send_revit_execute(code: str, timeout: float = 60.0, target_port: Optional[int] = None, target_doc: Optional[str] = None) -> Dict[str, Any]:
+def _send_revit_execute(code: str, engine: Optional[str] = "cpython", timeout: float = 60.0, target_port: Optional[int] = None, target_doc: Optional[str] = None) -> Dict[str, Any]:
     """Sends arbitrary Python code to the bound Revit execution endpoint."""
     port = _find_active_revit_port(target_port=target_port, target_doc=target_doc)
     if not port:
+        # Check diagnostic details across probed ports to provide an actionable explanation
+        unauth_ports = [p for p, d in _PORT_DIAGNOSTICS.items() if d.get("http_status") == 401]
+        timeout_ports = [p for p, d in _PORT_DIAGNOSTICS.items() if "timed out" in str(d.get("error", "")).lower()]
+        open_ports = [p for p, d in _PORT_DIAGNOSTICS.items() if d.get("tcp") == "open"]
+
+        if unauth_ports:
+            return {
+                "success": False,
+                "error": f"Active Revit listener found on port(s) {unauth_ports}, but request was rejected (401 Unauthorized). "
+                         f"Check that authentication token in ~/.revit_mcp/instances/instance_{unauth_ports[0]}.json is valid."
+            }
+        elif timeout_ports:
+            return {
+                "success": False,
+                "error": f"Revit listener found on port(s) {timeout_ports}, but connection timed out."
+            }
+        elif open_ports:
+            return {
+                "success": False,
+                "error": f"TCP port(s) {open_ports} are open, but /api/status failed: {[_PORT_DIAGNOSTICS[p].get('error') for p in open_ports]}"
+            }
         return {
             "success": False,
-            "error": "No active Revit server found. Please ensure Autodesk Revit is open and 'Start Server' in the Revit MCP panel is ON."
+            "error": "No active Revit server found on candidate ports 40001..40010. Please ensure Autodesk Revit is open and 'Start Server' in the Revit MCP panel is ON."
         }
 
-    payload = {"code": code}
+    payload: Dict[str, Any] = {"code": code}
+    if engine:
+        payload["engine"] = engine
+
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/execute",
         data=data,
         headers=_get_request_headers(port)
     )
-    
+
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             resp_body = resp.read().decode("utf-8")
@@ -170,6 +261,8 @@ def _send_revit_execute(code: str, timeout: float = 60.0, target_port: Optional[
                 res_dict["executed_on_port"] = port
                 res_dict["bound_port"] = _BOUND_PORT
                 res_dict["bound_doc"] = _BOUND_DOC
+                if engine and "engine" not in res_dict:
+                    res_dict["engine"] = engine
             return res_dict
     except urllib.error.HTTPError as e:
         try:
@@ -192,6 +285,121 @@ def _send_revit_execute(code: str, timeout: float = 60.0, target_port: Optional[
 # ==============================================================================
 # MCP TOOLS
 # ==============================================================================
+
+@server.tool()
+def revit_diagnose() -> str:
+    """Performs deep, non-invasive system diagnostic of the Revit MCP environment.
+    Reports:
+      - Extension loaded status
+      - Live vs stale instance files and PIDs
+      - Active TCP listeners on candidate ports
+      - Auth token status (loaded / missing / mismatch)
+      - Last lines of server.log
+      - Actionable remediation advice
+    Does NOT touch the active Revit model.
+    """
+    ensure_directories()
+    reconciled_stale = reconcile_instances()
+
+    report: Dict[str, Any] = {
+        "status": "healthy",
+        "cache_dir": CACHE_DIR,
+        "bound_port": _BOUND_PORT,
+        "bound_doc": _BOUND_DOC,
+        "reconciled_stale_instances": reconciled_stale,
+        "candidate_ports_checked": CANDIDATE_PORTS,
+        "instances_found": [],
+        "port_checks": {},
+        "server_log_tail": [],
+        "remediations": []
+    }
+
+    # Inspect instances directory
+    registered_files = []
+    if os.path.exists(INSTANCES_DIR):
+        for fname in os.listdir(INSTANCES_DIR):
+            if fname.startswith("instance_") and fname.endswith(".json"):
+                fpath = os.path.join(INSTANCES_DIR, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        idata = json.load(f)
+                        pid = idata.get("pid")
+                        idata["pid_alive"] = is_pid_alive(pid) if pid else False
+                        idata["file"] = fname
+                        registered_files.append(idata)
+                except Exception as ex:
+                    registered_files.append({"file": fname, "error": str(ex)})
+    report["instances_found"] = registered_files
+
+    # Port checks
+    active_ports = []
+    for port in CANDIDATE_PORTS:
+        diag: Dict[str, Any] = {"port": port, "tcp": "closed", "http_status": None, "auth_token_loaded": False}
+        token = load_auth_token_for_port(port)
+        diag["auth_token_loaded"] = bool(token)
+
+        # TCP socket check
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.06)
+        is_open = (s.connect_ex(('127.0.0.1', port)) == 0)
+        s.close()
+
+        if is_open:
+            diag["tcp"] = "open"
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/api/status", headers=_get_request_headers(port))
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    diag["http_status"] = resp.status
+                    if resp.status == 200:
+                        body = json.loads(resp.read().decode("utf-8"))
+                        diag["doc_title"] = body.get("doc_title")
+                        diag["pid"] = body.get("pid")
+                        active_ports.append(port)
+            except urllib.error.HTTPError as he:
+                diag["http_status"] = he.code
+                diag["error"] = f"HTTP {he.code}: {he.reason}"
+                if he.code == 401:
+                    diag["error"] = "401 Unauthorized: Auth token mismatch or missing"
+            except Exception as ex:
+                diag["error"] = str(ex)
+        report["port_checks"][port] = diag
+
+    # Read last 25 lines of server.log
+    if os.path.exists(SERVER_LOG_FILE):
+        try:
+            with open(SERVER_LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+                report["server_log_tail"] = [l.rstrip() for l in lines[-25:]]
+        except Exception:
+            pass
+
+    # Determine status & actionable remediations
+    if active_ports:
+        report["status"] = "healthy"
+        report["active_ports"] = active_ports
+    else:
+        unauth_ports = [p for p, d in report["port_checks"].items() if d.get("http_status") == 401]
+        open_err_ports = [p for p, d in report["port_checks"].items() if d.get("tcp") == "open"]
+        if unauth_ports:
+            report["status"] = "needs_attention"
+            report["remediations"].append(
+                f"Active listener found on port(s) {unauth_ports}, but requests were rejected (401 Unauthorized). "
+                "Check that the RevitMCP extension has written its auth token to ~/.revit_mcp/instances/."
+            )
+        elif open_err_ports:
+            report["status"] = "needs_attention"
+            report["remediations"].append(
+                f"Port(s) {open_err_ports} have open TCP sockets but /api/status failed. See port_checks details."
+            )
+        else:
+            report["status"] = "offline"
+            report["remediations"].append(
+                "No active Revit MCP listener detected on ports 40001..40010. "
+                "Ensure Autodesk Revit is running, open the RevitMCP tab on the ribbon, and click 'Start Server'."
+            )
+
+    return json.dumps(report, indent=2)
+
 
 @server.tool()
 def revit_ping(port: Optional[int] = None, doc_name: Optional[str] = None) -> str:
@@ -260,26 +468,26 @@ from Autodesk.Revit.DB import FilteredElementCollector, Level, View3D
 doc_info = {}
 if doc:
     doc_info['title'] = doc.Title
-    doc_info['path'] = doc.PathName
+    doc_info['path'] = doc.PathName or ''
     doc_info['is_family'] = doc.IsFamilyDocument
-    doc_info['is_workshared'] = doc.IsWorkshared
     doc_info['is_modified'] = doc.IsModified
     
-    view = doc.ActiveView
-    if view:
+    # Active View info
+    active_view = doc.ActiveView
+    if active_view:
         doc_info['active_view'] = {
-            'id': view.Id.IntegerValue if hasattr(view.Id, 'IntegerValue') else view.Id.Value,
-            'name': view.Name,
-            'view_type': str(view.ViewType),
-            'scale': getattr(view, 'Scale', 100),
-            'is_3d': isinstance(view, View3D)
+            'id': active_view.Id.IntegerValue if hasattr(active_view.Id, 'IntegerValue') else active_view.Id.Value,
+            'name': active_view.Name,
+            'view_type': str(active_view.ViewType),
+            'scale': active_view.Scale,
+            'is_3d': isinstance(active_view, View3D)
         }
-        if hasattr(view, 'GenLevel') and view.GenLevel:
+        if hasattr(active_view, 'GenLevel') and active_view.GenLevel:
             doc_info['active_view']['level'] = {
-                'id': view.GenLevel.Id.IntegerValue if hasattr(view.GenLevel.Id, 'IntegerValue') else view.GenLevel.Id.Value,
-                'name': view.GenLevel.Name,
-                'elevation_ft': view.GenLevel.Elevation,
-                'elevation_mm': round(view.GenLevel.Elevation * 304.8, 1)
+                'id': active_view.GenLevel.Id.IntegerValue if hasattr(active_view.GenLevel.Id, 'IntegerValue') else active_view.GenLevel.Id.Value,
+                'name': active_view.GenLevel.Name,
+                'elevation_ft': active_view.GenLevel.Elevation,
+                'elevation_mm': round(active_view.GenLevel.Elevation * 304.8, 1)
             }
             
     # Levels summary
@@ -298,10 +506,16 @@ response_data['model'] = doc_info
 
 
 @server.tool()
-def revit_execute_python(code: str, port: Optional[int] = None, doc_name: Optional[str] = None) -> str:
+def revit_execute_python(code: str, engine: Optional[str] = "cpython", port: Optional[int] = None, doc_name: Optional[str] = None) -> str:
     """Executes arbitrary Python code inside Autodesk Revit on the main UI thread.
     
-    Provides:
+    Args:
+        code: Python script string to execute.
+        engine: Preferred execution runtime ('cpython' or 'ironpython'). Default is 'cpython' when available.
+        port: Optional target instance port.
+        doc_name: Optional target document title.
+
+    Provides in execution scope:
       - doc: Active Revit Document
       - uidoc: Active UIDocument
       - uiapp: UIApplication
@@ -314,7 +528,7 @@ def revit_execute_python(code: str, port: Optional[int] = None, doc_name: Option
       ...
       t.Commit()
     """
-    res = _send_revit_execute(code, target_port=port, target_doc=doc_name)
+    res = _send_revit_execute(code, engine=engine, target_port=port, target_doc=doc_name)
     return json.dumps(res, indent=2)
 
 
@@ -364,13 +578,32 @@ response_data['elements'] = elements
 
 
 @server.tool()
+def revit_get_latest_selection(port: Optional[int] = None, doc_name: Optional[str] = None) -> str:
+    """Retrieves the most recent user element selection.
+    First checks the cached interactive user selection (~/.revit_mcp/latest_selection.json);
+    if not present, falls back to active view selection via Revit API.
+    """
+    ensure_directories()
+    if os.path.exists(LATEST_SELECTION_JSON):
+        try:
+            with open(LATEST_SELECTION_JSON, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data and data.get("elements"):
+                    return json.dumps(data, indent=2)
+        except Exception:
+            pass
+    return revit_get_selection(port=port, doc_name=doc_name)
+
+
+@server.tool()
 def revit_get_element_geometry(element_ids: Optional[List[int]] = None, port: Optional[int] = None, doc_name: Optional[str] = None) -> str:
     """Retrieves high-precision geometric summary (exact mm bounding box, location, rotation, level elevation) for elements."""
-    code = f"""
+    target_ids_json = json.dumps(element_ids or [])
+    code = """
 import math
 from Autodesk.Revit.DB import ElementId, LocationPoint, LocationCurve
 
-target_ids = {element_ids or '[]'}
+target_ids = {TARGET_IDS}
 if not target_ids and uidoc:
     target_ids = [eid.IntegerValue if hasattr(eid, 'IntegerValue') else eid.Value for eid in uidoc.Selection.GetElementIds()]
 
@@ -382,12 +615,12 @@ for tid in target_ids:
     if not el:
         continue
         
-    info = {{'id': tid, 'name': getattr(el, 'Name', ''), 'category': el.Category.Name if el.Category else ''}}
+    info = {'id': tid, 'name': getattr(el, 'Name', ''), 'category': el.Category.Name if el.Category else ''}
     
     # BoundingBox
     bbox = el.get_BoundingBox(view) or el.get_BoundingBox(None)
     if bbox:
-        info['bbox_mm'] = {{
+        info['bbox_mm'] = {
             'min': [round(bbox.Min.X * 304.8, 1), round(bbox.Min.Y * 304.8, 1), round(bbox.Min.Z * 304.8, 1)],
             'max': [round(bbox.Max.X * 304.8, 1), round(bbox.Max.Y * 304.8, 1), round(bbox.Max.Z * 304.8, 1)],
             'size': [
@@ -395,7 +628,7 @@ for tid in target_ids:
                 round((bbox.Max.Y - bbox.Min.Y) * 304.8, 1),
                 round((bbox.Max.Z - bbox.Min.Z) * 304.8, 1)
             ]
-        }}
+        }
         
     # Location
     loc = el.Location
@@ -414,7 +647,8 @@ for tid in target_ids:
     results.append(info)
 
 response_data['elements'] = results
-"""
+""".replace("{TARGET_IDS}", target_ids_json)
+
     res = _send_revit_execute(code, target_port=port, target_doc=doc_name)
     return json.dumps(res, indent=2)
 
@@ -458,15 +692,42 @@ def revit_capture_screenshot(port: Optional[int] = None, doc_name: Optional[str]
 
 @server.tool()
 def revit_get_latest_screenshot() -> str:
-    """Retrieves metadata and file path of the most recently captured screenshot or user snip."""
-    latest_meta = os.path.join(SAVE_DIR, "latest_screenshot.json")
-    if os.path.exists(latest_meta):
-        try:
-            with open(latest_meta, "r") as f:
-                return json.dumps(json.load(f), indent=2)
-        except Exception as ex:
-            return json.dumps({"error": f"Failed to read screenshot metadata: {str(ex)}"}, indent=2)
+    """Retrieves metadata and file path of the most recently captured screenshot or user snip.
+    Checks unified cache in ~/.revit_mcp/ and clearly indicates source ('user' or 'agent').
+    """
+    ensure_directories()
+    candidates = [
+        (LATEST_SCREENSHOT_JSON, LATEST_SCREENSHOT_PNG),
+        (LATEST_USER_SNIP_JSON, LATEST_USER_SNIP_PNG),
+        (LATEST_AGENT_SCREENSHOT_JSON, LATEST_AGENT_SCREENSHOT_PNG),
+    ]
+    for meta_file, img_file in candidates:
+        if os.path.exists(meta_file):
+            try:
+                with open(meta_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    data["image_file"] = img_file
+                    return json.dumps(data, indent=2)
+            except Exception as ex:
+                return json.dumps({"error": f"Failed to read screenshot metadata: {str(ex)}"}, indent=2)
     return json.dumps({"status": "not_found", "message": "No screenshot captured yet."}, indent=2)
+
+
+@server.tool()
+def revit_get_latest_user_snip() -> str:
+    """Retrieves metadata and file path for the most recent manual user snip or markup drawing.
+    This is dedicated to user-provided visual context and is never overwritten by agent automated captures.
+    """
+    ensure_directories()
+    if os.path.exists(LATEST_USER_SNIP_JSON):
+        try:
+            with open(LATEST_USER_SNIP_JSON, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                data["image_file"] = LATEST_USER_SNIP_PNG
+                return json.dumps(data, indent=2)
+        except Exception as ex:
+            return json.dumps({"error": f"Failed to read user snip metadata: {str(ex)}"}, indent=2)
+    return json.dumps({"status": "not_found", "message": "No user snip captured yet."}, indent=2)
 
 
 @server.tool()

@@ -15,7 +15,7 @@ description: >-
    - Access `doc`, `uidoc`, `uiapp`, `app`, and `response_data`.
 3. **pyRevit Integration & Extension Tools**:
    - Smart Disconnect (`revit_smart_disconnect.py`): Cleanly remove pipe branches or sprinklers, automatically merging collinear main pipe segments into a continuous single pipe or turning Tees into Elbows to eliminate orphan open connectors.
-   - Run any pyRevit pushbutton in `Exetnsion.extension` using `revit_run_script` or `revit_execute_python`.
+   - Run custom automation algorithms using `revit_execute_python`.
 4. **Visual Context & Screenshots**:
    - **User Markup/Snips**: `revit_get_latest_user_snip` reads `latest_user_snip.png` / `latest_user_snip.json` (contains user annotations/drawings, never overwritten by agent).
    - **Agent View Captures**: `revit_capture_screenshot` exports Revit view as `latest_agent_screenshot.png` / `latest_agent_screenshot.json` (`source: "agent"`).
@@ -32,7 +32,7 @@ When disconnecting sprinklers, branch pipes, or collapsing fittings:
 
 ## Sprinkler Autotrace Tool (Branch Construction & Sizing)
 For automatic branch routing and connection of sprinklers to main supply pipes:
-- Source algorithm: `G:\My Drive\Exetnsion.extension\ASTools.tab\Test.panel\Sprinkler autotrace.pushbutton\script.py` / `revit_sprinkler_trace.py`.
+- Algorithm reference: `revit_sprinkler_trace.py`.
 - Features:
   - Local Coordinate System (`CS1`) aligned with the main pipe axis.
   - Logical grouping (`create_logical_groups`) with outlier and twig handling (`MAX_TWIG_LENGTH_FEET ~ 2.0 m`).
@@ -42,7 +42,7 @@ For automatic branch routing and connection of sprinklers to main supply pipes:
 - Available script module: `revit_sprinkler_trace.py`.
 
 ## Best Practices
-- **Extension Safety**: Never modify `G:/My Drive/Exetnsion.extension` files in-place. Always copy files to the local workspace (`revit-mcp` or scratch) before editing or running customized versions.
+- **Extension Safety**: Never modify external extension files in-place. Always copy files to the local workspace before editing or running customized versions.
 - Always wrap modifications in `Transaction(doc, "Transaction Name")`.
 - Attach an `IFailuresPreprocessor` with `DeleteAllWarnings()` to transactions to avoid blocking UI modals.
 - **HUD Busy State**: Always invoke `revit_set_busy(busy=True)` as the very first tool call when initiating reasoning or execution, and `revit_set_busy(busy=False)` as the final tool call before presenting completed results.

@@ -1,3 +1,0 @@
-title: "Revit MCP"
-tooltip: "Starts/stops the local HTTP server for Google Antigravity & MCP AI agents. Green = Running, Gray = Stopped."
-context: zero-doc

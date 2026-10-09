@@ -50,7 +50,7 @@ from System.Windows.Input import (
 )
 from System.Windows.Shapes import Rectangle as WpfRectShape, Path as WpfPath, Line as WpfLine
 
-DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "revit_mcp")
+DEFAULT_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".revit_mcp")
 SAVE_DIR = os.environ.get("REVIT_MCP_CACHE_DIR", DEFAULT_CACHE_DIR)
 LATEST_PNG = os.path.join(SAVE_DIR, "latest_screenshot.png")
 LATEST_JSON = os.path.join(SAVE_DIR, "latest_screenshot.json")
@@ -367,7 +367,7 @@ class AnnotationWindow(Window):
             elif tool_id == "pen":
                 self.ink_canvas.EditingMode = InkCanvasEditingMode.Ink
             else:
-                self.ink_canvas.EditingMode = InkCanvasEditingMode.None
+                self.ink_canvas.EditingMode = getattr(InkCanvasEditingMode, "None")
                 
             self._update_drawing_attributes()
             

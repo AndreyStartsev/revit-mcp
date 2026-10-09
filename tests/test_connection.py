@@ -20,7 +20,7 @@ def run_test(port=None):
     print(" Revit MCP - Connection Self-Test")
     print("========================================")
     
-    ports_to_try = [port] if port else [40001, 40002, 40003, 40004, 40005, 40000]
+    ports_to_try = [port] if port else list(range(40001, 40011))
     client = None
     status = None
 

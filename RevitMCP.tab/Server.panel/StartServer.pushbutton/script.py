@@ -890,7 +890,7 @@ class AsyncHttpServer(object):
                     self.window.Dispatcher.BeginInvoke(action_cls(update_busy_ui))
                 self._write_response(response, {"success": True, "busy": busy}, 200)
 
-            elif path in ["/api/status", "/api/status/", "/"]:
+            elif path in ["/api/ping", "/api/ping/", "/api/status", "/api/status/", "/"]:
                 self._write_response(response, self.get_status_info(), 200)
                 if self.window:
                     self.window.notify_request_finished(200, time.time() - t_start, "status")
@@ -1091,6 +1091,18 @@ class RevitServerWindow(forms.WPFWindow):
             if hasattr(self, "CompactScreenshotBtn"):
                 self.CompactScreenshotBtn.Click += self._on_screenshot_clicked
 
+            if hasattr(self, "PromptBox") and self.PromptBox:
+                self.PromptBox.TextChanged += self._on_prompt_changed
+                self.PromptBox.KeyDown += self._on_prompt_keydown
+
+            if hasattr(self, "SendBtn") and self.SendBtn:
+                self.SendBtn.Click += self._on_send_clicked
+
+            if hasattr(self, "VisualizerBtn") and self.VisualizerBtn:
+                self.VisualizerBtn.Click += self.on_visualizer_clicked
+            if hasattr(self, "CompactVisualizerBtn") and self.CompactVisualizerBtn:
+                self.CompactVisualizerBtn.Click += self.on_visualizer_clicked
+
             # Background continuous modal monitor timer (400ms) for instant detection and instant recovery
             try:
                 from System.Windows.Threading import DispatcherTimer
@@ -1219,8 +1231,8 @@ class RevitServerWindow(forms.WPFWindow):
             else:
                 self.CompactView.Visibility = vis_cmp
                 self.ExpandedView.Visibility = vis_exp
-                self.Width = 440
-                self.Height = 150
+                self.Width = 460
+                self.Height = 185
         except (Exception, System.Exception) as ex:
             log_debug("_on_min_clicked error: {}".format(ex))
         except:
@@ -1234,6 +1246,9 @@ class RevitServerWindow(forms.WPFWindow):
             if b1: self.MainBorder.Background = b1
             if b2: self.MainBorder.BorderBrush = b2
             if b3: self.StatusCardBorder.Background = b3
+            if hasattr(self, "PromptInputBorder") and self.PromptInputBorder:
+                if b3: self.PromptInputBorder.Background = b3
+                if b2: self.PromptInputBorder.BorderBrush = b2
         except (Exception, System.Exception) as ex:
             log_debug("set_theme_idle error: {}".format(ex))
         except:
@@ -1253,6 +1268,9 @@ class RevitServerWindow(forms.WPFWindow):
             if b1: self.MainBorder.Background = b1
             if b2: self.MainBorder.BorderBrush = b2
             if b3: self.StatusCardBorder.Background = b3
+            if hasattr(self, "PromptInputBorder") and self.PromptInputBorder:
+                if b3: self.PromptInputBorder.Background = b3
+                if b2: self.PromptInputBorder.BorderBrush = b2
             if b_purple:
                 self.StatusIndicator.Fill = b_purple
                 if hasattr(self, "CompactStatusIndicator"):
@@ -1538,7 +1556,6 @@ class RevitServerWindow(forms.WPFWindow):
 
             def do_pick(uiapp):
                 elements_data = []
-                canceled = False
                 err_msg = None
                 try:
                     uidoc = getattr(uiapp, "ActiveUIDocument", None)
@@ -1554,60 +1571,47 @@ class RevitServerWindow(forms.WPFWindow):
                         self._dispatch(update_nodoc)
                         return {"count": 0, "elements": [], "error": "No active document"}
 
-                    try:
-                        from Autodesk.Revit.UI.Selection import ObjectType as _ObjType
-                        obj_type = _ObjType
-                    except (Exception, System.Exception):
-                        obj_type = getattr(self, "_object_type_cls", None) or ObjectType
+                    sel_ids = uidoc.Selection.GetElementIds() if uidoc else []
+                    if not sel_ids:
+                        def update_empty():
+                            try:
+                                self.StatusText.Text = "Select elements in Revit first"
+                                b_yellow = self._brush(241, 196, 15)
+                                if b_yellow: self.StatusText.Foreground = b_yellow
+                            except:
+                                pass
+                        self._dispatch(update_empty)
+                        return {"count": 0, "elements": [], "message": "No elements selected in view"}
 
                     filt_cls = getattr(self, "_category_selection_filter_cls", None) or CategorySelectionFilter
-                    try:
-                        filt = filt_cls(doc, cats)
-                    except (Exception, System.Exception):
-                        filt = None
+                    filt = None
+                    if cats:
+                        try:
+                            filt = filt_cls(doc, cats)
+                        except (Exception, System.Exception):
+                            filt = None
 
-                    if multiple:
-                        prompt_text = "Select elements and click Finish"
-                        refs = uidoc.Selection.PickObjects(obj_type.Element, filt, prompt_text) if filt else uidoc.Selection.PickObjects(obj_type.Element, prompt_text)
-                        if refs:
-                            for r in refs:
-                                el = doc.GetElement(r)
-                                if el:
-                                    el_id = getattr(el.Id, "IntegerValue", None)
-                                    if el_id is None:
-                                        el_id = getattr(el.Id, "Value", 0)
-                                    elements_data.append({
-                                        "id": el_id,
-                                        "name": getattr(el, "Name", ""),
-                                        "category": el.Category.Name if el.Category else ""
-                                    })
-                    else:
-                        prompt_text = "Select 1 element in model"
-                        ref = uidoc.Selection.PickObject(obj_type.Element, filt, prompt_text) if filt else uidoc.Selection.PickObject(obj_type.Element, prompt_text)
-                        if ref:
-                            el = doc.GetElement(ref)
-                            if el:
-                                el_id = getattr(el.Id, "IntegerValue", None)
-                                if el_id is None:
-                                    el_id = getattr(el.Id, "Value", 0)
-                                elements_data.append({
-                                    "id": el_id,
-                                    "name": getattr(el, "Name", ""),
-                                    "category": el.Category.Name if el.Category else ""
-                                })
+                    for eid in sel_ids:
+                        el = doc.GetElement(eid)
+                        if not el:
+                            continue
+                        if filt and not filt.AllowElement(el):
+                            continue
+                        el_id = getattr(el.Id, "IntegerValue", None)
+                        if el_id is None:
+                            el_id = getattr(el.Id, "Value", 0)
+                        elements_data.append({
+                            "id": el_id,
+                            "name": getattr(el, "Name", ""),
+                            "category": el.Category.Name if el.Category else ""
+                        })
 
                 except (Exception, System.Exception) as p_ex:
-                    ex_str = str(p_ex)
-                    ex_type = str(type(p_ex))
-                    if "OperationCanceledException" in ex_type or "cancel" in ex_str.lower():
-                        canceled = True
-                        log_debug("Selection was canceled by user.")
-                    else:
-                        err_msg = ex_str
-                        log_debug("Selection exception: {}".format(ex_str))
+                    err_msg = str(p_ex)
+                    log_debug("Selection exception: {}".format(err_msg))
                 except:
-                    canceled = True
-                    log_debug("Native cancel or exception during selection.")
+                    err_msg = "Native exception during selection"
+                    log_debug("Native exception during selection")
 
                 now_str = ""
                 try:
@@ -1615,20 +1619,7 @@ class RevitServerWindow(forms.WPFWindow):
                 except:
                     pass
 
-                if canceled:
-                    res = {"count": 0, "elements": [], "canceled": True, "timestamp": now_str}
-                    def update_cancel():
-                        try:
-                            self.StatusText.Text = "Selection canceled"
-                            b_gray = self._brush(149, 165, 166)
-                            if b_gray: self.StatusText.Foreground = b_gray
-                            if hasattr(self, "CompactStatusText"):
-                                self.CompactStatusText.Text = "Canceled"
-                                if b_gray: self.CompactStatusText.Foreground = b_gray
-                        except:
-                            pass
-                    self._dispatch(update_cancel)
-                elif err_msg:
+                if err_msg:
                     res = {"count": 0, "elements": [], "error": err_msg, "timestamp": now_str}
                     def update_err():
                         try:
@@ -1658,6 +1649,14 @@ class RevitServerWindow(forms.WPFWindow):
                         except:
                             pass
                     self._dispatch(update_ok)
+
+                # Save to latest_selection.json in unified cache
+                try:
+                    sel_json_path = os.path.join(save_dir, "latest_selection.json")
+                    with open(sel_json_path, "w") as sf:
+                        json.dump(res, sf, indent=2)
+                except Exception as ex_save:
+                    log_debug("Failed to write latest_selection.json: {}".format(ex_save))
 
                 self.active_request_result = res
                 if getattr(self, "active_request_event", None):
@@ -1717,6 +1716,266 @@ class RevitServerWindow(forms.WPFWindow):
         except:
             pass
 
+    def _get_python_path(self):
+        candidates = [
+            r"C:\Users\user49\AppData\Roaming\pyRevit-7\bin\cengines\CPY3123\python.exe",
+            r"C:\Users\user49\AppData\Roaming\pyRevit-7\bin\cengines\CPY385\python.exe",
+        ]
+        try:
+            pyrevit_appdata = os.environ.get("APPDATA", "")
+            if pyrevit_appdata:
+                ceng_dir = os.path.join(pyrevit_appdata, "pyRevit-7", "bin", "cengines")
+                if os.path.exists(ceng_dir):
+                    for sub in os.listdir(ceng_dir):
+                        py_path = os.path.join(ceng_dir, sub, "python.exe")
+                        if os.path.exists(py_path) and py_path not in candidates:
+                            candidates.append(py_path)
+        except Exception:
+            pass
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return "python.exe"
+
+    def _on_prompt_changed(self, sender, e):
+        try:
+            if hasattr(self, "PromptPlaceholder") and self.PromptPlaceholder:
+                has_text = bool(self.PromptBox.Text and self.PromptBox.Text.strip())
+                vis_fn = getattr(self, "_visibility", None)
+                if vis_fn:
+                    self.PromptPlaceholder.Visibility = vis_fn(not has_text)
+                else:
+                    self.PromptPlaceholder.Visibility = Visibility.Collapsed if has_text else Visibility.Visible
+        except Exception as ex:
+            log_debug("_on_prompt_changed error: {}".format(ex))
+
+    def _on_prompt_keydown(self, sender, e):
+        try:
+            k = str(getattr(e, "Key", ""))
+            if k in ("Enter", "Return"):
+                e.Handled = True
+                self.send_current_prompt()
+        except Exception as ex:
+            log_debug("_on_prompt_keydown error: {}".format(ex))
+
+    def _on_send_clicked(self, sender, e):
+        try:
+            self.send_current_prompt()
+        except Exception as ex:
+            log_debug("_on_send_clicked error: {}".format(ex))
+
+    def send_current_prompt(self):
+        try:
+            if not hasattr(self, "PromptBox") or not self.PromptBox:
+                return
+            prompt_text = (self.PromptBox.Text or "").strip()
+            if not prompt_text:
+                return
+
+            self.PromptBox.Text = ""
+            if hasattr(self, "PromptPlaceholder") and self.PromptPlaceholder:
+                vis_fn = getattr(self, "_visibility", None)
+                if vis_fn:
+                    self.PromptPlaceholder.Visibility = vis_fn(True)
+                else:
+                    self.PromptPlaceholder.Visibility = Visibility.Visible
+
+            self.set_theme_busy("Sending to Antigravity...", "Submitting prompt...")
+
+            def worker():
+                res, msg = self._dispatch_prompt_to_antigravity(prompt_text)
+                def update_result():
+                    if res:
+                        self.StatusText.Text = "Prompt sent to Antigravity!"
+                        self.ActivityText.Text = "Waiting for agent response..."
+                        self.set_theme_busy("Prompt sent to Antigravity!", "Waiting for agent response...")
+                    else:
+                        self.StatusText.Text = "Send failed"
+                        b_red = self._brush(231, 76, 60)
+                        if b_red:
+                            self.StatusText.Foreground = b_red
+                            self.StatusIndicator.Fill = b_red
+                        self.ActivityText.Text = str(msg)
+                self._dispatch(update_result)
+
+            thread = System.Threading.Thread(System.Threading.ThreadStart(worker))
+            thread.IsBackground = True
+            thread.Start()
+        except Exception as ex:
+            log_debug("send_current_prompt error: {}".format(ex))
+
+    def _dispatch_prompt_to_antigravity(self, prompt_text):
+        try:
+            save_dir = r"C:\Users\user49\.gemini\antigravity\scratch\revit-mcp"
+            if not os.path.exists(save_dir):
+                try:
+                    os.makedirs(save_dir)
+                except:
+                    pass
+            
+            prompt_file = os.path.join(save_dir, "pending_prompt.txt")
+            System.IO.File.WriteAllText(prompt_file, prompt_text, System.Text.Encoding.UTF8)
+
+            # Auto-bind session to THIS Revit instance so MCP bridge routes commands to the right window
+            curr_port = 40001
+            if getattr(self, "http_server", None):
+                curr_port = getattr(self.http_server, "port", 40001)
+
+            curr_doc = ""
+            try:
+                from pyrevit import revit
+                if revit.doc:
+                    curr_doc = str(revit.doc.Title)
+            except:
+                pass
+
+            try:
+                binding_file = os.path.join(save_dir, "session_binding.json")
+                binding_data = {
+                    "bound_port": curr_port,
+                    "bound_doc": curr_doc
+                }
+                System.IO.File.WriteAllText(binding_file, json.dumps(binding_data, indent=2), System.Text.Encoding.UTF8)
+            except:
+                pass
+
+            dispatcher_script = None
+            try:
+                cur_dir = os.path.dirname(__file__)
+                cand = os.path.join(cur_dir, "send_prompt.py")
+                if os.path.exists(cand):
+                    dispatcher_script = cand
+            except:
+                pass
+            if not dispatcher_script or not os.path.exists(dispatcher_script):
+                dispatcher_script = os.path.join(save_dir, "send_prompt.py")
+
+            py_exe = self._get_python_path()
+
+            psi = System.Diagnostics.ProcessStartInfo()
+            psi.FileName = py_exe
+            psi.Arguments = '"{}" "{}" --port {} --doc "{}"'.format(dispatcher_script, prompt_file, curr_port, curr_doc)
+            psi.UseShellExecute = False
+            psi.CreateNoWindow = True
+            psi.RedirectStandardOutput = True
+            psi.RedirectStandardError = True
+            psi.StandardOutputEncoding = System.Text.Encoding.UTF8
+            psi.StandardErrorEncoding = System.Text.Encoding.UTF8
+            psi.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
+
+            proc = System.Diagnostics.Process.Start(psi)
+            out_str = proc.StandardOutput.ReadToEnd()
+            err_str = proc.StandardError.ReadToEnd()
+            proc.WaitForExit(15000)
+
+            if out_str:
+                try:
+                    res_json = json.loads(out_str.strip())
+                    if res_json.get("success"):
+                        return True, res_json.get("message", "OK")
+                    else:
+                        return False, res_json.get("message", "Send failed")
+                except:
+                    pass
+
+            if proc.ExitCode == 0:
+                return True, "OK"
+            else:
+                err_msg = (err_str or out_str or "Exit code {}".format(proc.ExitCode)).strip()
+                return False, err_msg
+        except Exception as ex:
+            return False, str(ex)
+
+    def on_visualizer_clicked(self, sender, e):
+        log_debug("Visualizer button clicked.")
+        try:
+            self._launch_visualizer()
+        except Exception as ex:
+            log_debug("on_visualizer_clicked error: {}".format(ex))
+
+    def _launch_visualizer(self):
+        try:
+            import socket
+            is_running = False
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.3)
+                res = s.connect_ex(('127.0.0.1', 5055))
+                s.close()
+                is_running = (res == 0)
+            except Exception:
+                is_running = False
+
+            if not is_running:
+                candidate_paths = [
+                    os.path.join(os.path.dirname(__file__), "revit_visual_dashboard.py"),
+                    r"C:\Users\user49\.gemini\antigravity\scratch\revit-mcp\revit_visual_dashboard.py",
+                    r"C:\Users\user49\AppData\Roaming\pyRevit\Extensions\RevitMCP.extension\RevitMCP.tab\Server.panel\StartServer.pushbutton\revit_visual_dashboard.py",
+                ]
+                script_path = None
+                for p in candidate_paths:
+                    if os.path.exists(p):
+                        script_path = p
+                        break
+
+                if script_path:
+                    py_exe = self._get_python_path()
+                    psi = System.Diagnostics.ProcessStartInfo()
+                    psi.FileName = py_exe
+                    psi.Arguments = '"{}"'.format(script_path)
+                    psi.WorkingDirectory = os.path.dirname(script_path)
+                    psi.UseShellExecute = False
+                    psi.CreateNoWindow = True
+                    psi.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden
+                    try:
+                        System.Diagnostics.Process.Start(psi)
+                        log_debug("Started visualizer: {}".format(script_path))
+                        System.Threading.Thread.Sleep(600)
+                    except Exception as ex_proc:
+                        log_debug("Failed to start visualizer: {}".format(ex_proc))
+
+            # Sync active port to session_binding.json if present
+            try:
+                active_port = 40001
+                if getattr(self, "http_server", None):
+                    active_port = getattr(self.http_server, "port", 40001)
+                binding_file = r"C:\Users\user49\.gemini\antigravity\scratch\revit-mcp\session_binding.json"
+                binding_data = {}
+                if os.path.exists(binding_file):
+                    try:
+                        with open(binding_file, "r") as bf:
+                            binding_data = json.load(bf)
+                    except Exception:
+                        binding_data = {}
+                binding_data["bound_port"] = active_port
+                try:
+                    from pyrevit import revit
+                    if revit.doc:
+                        binding_data["bound_doc"] = str(revit.doc.Title)
+                except Exception:
+                    pass
+                with open(binding_file, "w") as bf:
+                    json.dump(binding_data, bf, indent=2)
+            except Exception as ex_b:
+                log_debug("Failed to update session_binding for visualizer: {}".format(ex_b))
+
+            url = "http://localhost:5055"
+            try:
+                psi_url = System.Diagnostics.ProcessStartInfo(url)
+                psi_url.UseShellExecute = True
+                System.Diagnostics.Process.Start(psi_url)
+            except Exception:
+                try:
+                    import webbrowser
+                    webbrowser.open(url)
+                except Exception as ex_web:
+                    log_debug("Failed to open browser: {}".format(ex_web))
+
+            if hasattr(self, "ActivityText") and self.ActivityText:
+                self.ActivityText.Text = "3D Visualizer launched at :5055"
+        except Exception as ex:
+            log_debug("_launch_visualizer error: {}".format(ex))
+
     def _on_toggle_clicked(self, sender, e):
         try:
             if self.http_server and getattr(self.http_server, "running", False):
@@ -1746,10 +2005,13 @@ class RevitServerWindow(forms.WPFWindow):
 
     def start_server(self):
         try:
-            if not getattr(self, "handler", None):
-                self.handler = RevitExecutionHandler(self)
-            if not getattr(self, "ext_event", None):
-                self.ext_event = ExternalEvent.Create(self.handler)
+            if not getattr(self, "handler", None) or not getattr(self, "ext_event", None):
+                log_debug("Cannot start server: ExternalEvent is not initialized. Please restart from Revit ribbon.")
+                self.StatusText.Text = "Restart from ribbon"
+                b_red = self._brush(231, 76, 60)
+                if b_red:
+                    self.StatusText.Foreground = b_red
+                return
 
             if self.http_server and getattr(self.http_server, "running", False):
                 return
@@ -1792,10 +2054,40 @@ class RevitServerWindow(forms.WPFWindow):
 def main():
     # Cross-version modeless window pattern (pyRevit 4.x / 5.x / 7.x / .NET 8)
     win = get_registered_window(DOMAIN_WINDOW_KEY)
+
+    # Re-entrancy guard: if window exists and server is already running, activate and exit safely!
+    if win and getattr(win, "http_server", None) and getattr(win.http_server, "running", False):
+        try:
+            if not win.IsVisible:
+                win.Show()
+            win.Activate()
+            win.Focus()
+            log_debug("StartServer called while server is already running. Focused existing window.")
+            return
+        except Exception as ex:
+            log_debug("Error activating existing running window: {}".format(ex))
+    if win:
+        # If existing window lacks PromptBox or VisualizerBtn, close and recreate
+        if not hasattr(win, "PromptBox") or win.PromptBox is None or not hasattr(win, "VisualizerBtn") or win.VisualizerBtn is None:
+            try:
+                win.Close()
+            except Exception:
+                pass
+            set_registered_window(DOMAIN_WINDOW_KEY, None)
+            win = None
+
     if win:
         try:
             # Hot-reload updated methods onto existing window instance
-            for method_name in ["start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch", "_on_close_clicked", "_on_window_closed", "update_icon", "set_theme_busy", "set_theme_idle", "notify_request_finished", "start_modal_blinking", "stop_modal_blinking", "_on_blink_tick", "_on_modal_monitor_tick"]:
+            for method_name in [
+                "start_server", "_on_toggle_clicked", "_brush", "_visibility", "_dispatch",
+                "_on_close_clicked", "_on_window_closed", "update_icon", "set_theme_busy",
+                "set_theme_idle", "notify_request_finished", "start_modal_blinking",
+                "stop_modal_blinking", "_on_blink_tick", "_on_modal_monitor_tick",
+                "_on_min_clicked", "_get_python_path", "_on_prompt_changed",
+                "_on_prompt_keydown", "_on_send_clicked", "send_current_prompt",
+                "_dispatch_prompt_to_antigravity", "on_visualizer_clicked", "_launch_visualizer"
+            ]:
                 if hasattr(RevitServerWindow, method_name):
                     setattr(win, method_name, getattr(RevitServerWindow, method_name).__get__(win, RevitServerWindow))
 

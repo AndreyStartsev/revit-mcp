@@ -5,8 +5,7 @@ You are connected to an Autodesk Revit instance via the Model Context Protocol (
 ## Environment Context
 - **Active Revit Model**: Query dynamically via `revit_get_active_model` or `revit_ping`.
 - **MCP Server Name**: `revit`
-- **Revit Server Endpoints**: Ports `40001`, `40000`, `40002`, `8111` on `http://127.0.0.1`.
-- **Extension Path**: `G:/My Drive/Exetnsion.extension`
+- **Revit Server Endpoints**: Candidate ports `40001` through `40010` on `http://127.0.0.1`.
 - **Execution Architecture**: Thread-safe FIFO queue executed on the Revit UI thread via pyRevit `ExternalEvent`, secured by shared secret token authentication (`auth_token`).
 
 ## Critical Rules
@@ -70,7 +69,7 @@ You are connected to an Autodesk Revit instance via the Model Context Protocol (
      - At every interactive phase (`[INTERACTIVE]`), the agent MUST STOP calling tools, output the step banner `[MODEL SETUP: STEP X/11 — <NAME>]`, state the current status, give explicit user instructions or questions, and WAIT for user response.
      - The agent MUST NOT proceed to Step N+1 until Step N is completed and confirmed by user action or explicit automated verification.
 9. **Extension File Preservation & Strict Local-Copy Rule**:
-   - **NEVER** edit, overwrite, or modify files located in the external extension directory (`G:/My Drive/Exetnsion.extension` or any external source extension directory).
+   - **NEVER** edit, overwrite, or modify files located in an external source extension directory directly.
    - If changes, tests, or adaptations are required, **ALWAYS** copy the relevant script/module into the local workspace (`revit-mcp` or scratch directory) and modify/execute it locally.
 10. **Automated User Context Tracking & Multi-Instance Processed State Invariant**:
    - **Per-Instance & Model Isolation**:
@@ -78,7 +77,7 @@ You are connected to an Autodesk Revit instance via the Model Context Protocol (
    - **Verification on Every Request**:
      - At every turn/request involving Revit model operations or user queries:
        - Check `revit_get_latest_user_snip` and `revit_get_latest_selection` for the targeted instance.
-       - Compare their `timestamp` against the instance-specific entry in `C:\Users\user49\.gemini\antigravity\scratch\revit-mcp\processed_context_state.json`.
+       - Compare their `timestamp` against the instance-specific entry in `~/.revit_mcp/processed_context_state.json`.
        - If a new user snip or element selection is detected (timestamp > last processed for this model), immediately inspect and use it as primary task context.
        - If context was cleared (`exists: false` or empty), treat gracefully as a clean slate.
        - Once processed, update `processed_context_state.json` for that specific model/port to mark it as completed.
